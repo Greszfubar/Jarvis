@@ -12,7 +12,6 @@ import { AudioLink } from "./audio.js";
 import { EventLink } from "./ws.js";
 import { Hud } from "./hud.js";
 import { Hands } from "./hands.js";
-import { Globe } from "./globe.js";
 
 const $ = (id) => document.getElementById(id);
 const scenes = { boot: $("boot"), gresz: $("card-gresz"), launch: $("card-launch"), dash: $("dashboard") };
@@ -73,16 +72,11 @@ function launchSequence() {
   }, 600);
 }
 
-let globe = null;
-
 function enterDashboard() {
   state = "dashboard";
   show("dash");
-  globe = new Globe($("globe-slot"), {
-    onPinClick: (id) => hud.showBanner(
-      id === "calvera" ? "PORT CALVERA — PHASE 4" : "HOME", 2600),
-  });
-  globe.init().catch((e) => console.error("globe init failed", e));
+  // The Jarvis window keeps its rings; the globe lives on /globe (screen 2)
+  new Core($("core-idle"), { passive: true });
   // In-OS voice: no wake word needed from here on
   fetch("/api/os/voice", {
     method: "POST",
@@ -111,16 +105,9 @@ const link = new EventLink((d) => {
       break;
     case "os":
       if (d.command === "banner" && d.arg) hud.showBanner(String(d.arg).toUpperCase());
-      if (globe && d.command === "globe" && d.arg) {
-        const m = d.arg.trim().toLowerCase();
-        if (["heat", "wind", "rain", "clear"].includes(m)) {
-          globe.setMode(m);
-          hud.showBanner(m === "clear" ? "GLOBE CLEAR" : `GLOBE — ${m.toUpperCase()}`, 2600);
-        }
-      }
-      if (globe && d.command === "fly" && d.arg) {
-        const [lat, lon, dist] = String(d.arg).split(",").map(Number);
-        if (isFinite(lat) && isFinite(lon)) globe.flyTo(lat, lon, isFinite(dist) ? dist : null);
+      if (d.command === "globe" && d.arg) {
+        // Globe lives on screen 2 — just acknowledge here
+        hud.showBanner(`GLOBE — ${d.arg.trim().toUpperCase()}`, 2200);
       }
       break;
     case "hands":

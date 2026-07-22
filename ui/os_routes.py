@@ -68,6 +68,10 @@ def register_os(app: FastAPI, broadcast):
     async def os_page():
         return FileResponse(_OS_DIR / "index.html")
 
+    @app.get("/globe", response_class=HTMLResponse)
+    async def globe_page():
+        return FileResponse(_OS_DIR / "globe.html")
+
     @app.get("/stage", response_class=HTMLResponse)
     async def stage_page():
         return FileResponse(_OS_DIR / "stage.html")

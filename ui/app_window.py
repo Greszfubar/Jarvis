@@ -28,7 +28,7 @@ _URL  = f"http://{_HOST}:{_PORT}" + ("/os" if _OS_MODE else "")
 
 # The window handles — set in open_window(), used in _boot()
 _win: webview.Window = None
-_stage_win: webview.Window = None
+_aux_wins: list = []          # [(window, url_path)] for /globe and /stage
 
 
 def _wait_for_server(timeout: float = 15.0) -> bool:
@@ -61,8 +61,8 @@ def _boot(start_async_engine):
         log.info("Server ready — loading app window")
         if _win:
             _win.load_url(_URL)
-        if _stage_win:
-            _stage_win.load_url(f"http://{_HOST}:{_PORT}/stage")
+        for w, path in _aux_wins:
+            w.load_url(f"http://{_HOST}:{_PORT}{path}")
     else:
         log.error("Server did not start in time — window will show error page")
 
@@ -89,25 +89,29 @@ def open_window(start_async_engine):
         js_api           = JarvisAPI(),   # exposes window.pywebview.api to JS
     )
 
-    # OS mode + a second display → THE STAGE gets its own fullscreen window
-    global _stage_win
+    # OS mode: three-screen arrangement per the master plan —
+    #   screen 1: the Jarvis window (rings, voice)   → /os
+    #   screen 2: the Globe overview                 → /globe
+    #   screen 3: THE STAGE (Jarvis opens apps here) → /stage
+    global _aux_wins
+    _aux_wins = []
     if _OS_MODE:
         try:
             screens = webview.screens
-            if len(screens) > 1:
-                _stage_win = webview.create_window(
-                    title            = "THE STAGE",
-                    url              = "data:text/html,<html style='background:%23000000'></html>",
-                    background_color = "#000000",
-                    text_select      = False,
-                    fullscreen       = True,
-                    screen           = screens[1],
-                )
-                log.info(f"STAGE window created on display 2 of {len(screens)}")
-            else:
-                log.info("One display detected — STAGE stays at /stage in a browser")
+            for i, path in enumerate(["/globe", "/stage"], start=1):
+                if len(screens) > i:
+                    w = webview.create_window(
+                        title            = path.strip("/").upper(),
+                        url              = "data:text/html,<html style='background:%23000000'></html>",
+                        background_color = "#000000",
+                        text_select      = False,
+                        fullscreen       = True,
+                        screen           = screens[i],
+                    )
+                    _aux_wins.append((w, path))
+            log.info(f"OS windows: main + {[p for _, p in _aux_wins]} across {len(screens)} display(s)")
         except Exception as e:
-            log.warning(f"STAGE window setup failed (continuing single-screen): {e}")
+            log.warning(f"Aux window setup failed (continuing with main only): {e}")
 
     # Pass start_async_engine as the func so webview calls it in a thread
     webview.start(

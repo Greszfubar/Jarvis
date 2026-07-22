@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GLOBE</title>
+<link rel="stylesheet" href="/os/static/os.css">
+<style>
+  #globe-view { position: fixed; inset: 0; }
+  #stage-mode {
+    position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.55em; text-transform: uppercase;
+    color: var(--dim); padding-left: 0.55em;
+    opacity: 0; transition: opacity .6s ease;
+  }
+  #stage-mode.on { opacity: 1 }
+  #stage-footnote {
+    position: fixed; bottom: 4vh; left: 50%; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.6em; text-transform: uppercase;
+    color: var(--dim); padding-left: 0.6em;
+  }
+</style>
+</head>
+<body>
+  <canvas id="dots"></canvas>
+  <div id="globe-view"></div>
+  <div id="stage-mode"></div>
+  <div id="stage-footnote">GRESZ INDUSTRIES</div>
+
+  <script type="module">
+    import "/os/static/js/dots.js";
+    import { Globe } from "/os/static/js/globe.js";
+    import { EventLink } from "/os/static/js/ws.js";
+
+    const globe = new Globe(document.getElementById("globe-view"));
+    await globe.init();
+
+    const modeEl = document.getElementById("stage-mode");
+    function setMode(m) {
+      globe.setMode(m);
+      modeEl.textContent = m === "clear" ? "" : `GLOBE — ${m.toUpperCase()}`;
+      modeEl.classList.toggle("on", m !== "clear");
+    }
+
+    // Dev/demo: /stage?mode=heat&fly=28.3,-16.6
+    const q = new URLSearchParams(location.search);
+    if (q.get("mode")) setMode(q.get("mode"));
+    if (q.get("fly")) {
+      const [lat, lon] = q.get("fly").split(",").map(Number);
+      if (isFinite(lat) && isFinite(lon)) setTimeout(() => globe.flyTo(lat, lon), 800);
+    }
+
+    // Voice-driven: [ACTION:os:globe|heat] / [ACTION:os:fly|lat,lon]
+    new EventLink((d) => {
+      if (d.kind !== "os") return;
+      if (d.command === "globe" && d.arg) {
+        const m = d.arg.trim().toLowerCase();
+        if (["heat", "wind", "rain", "clear"].includes(m)) setMode(m);
+      }
+      if (d.command === "fly" && d.arg) {
+        const [lat, lon, dist] = String(d.arg).split(",").map(Number);
+        if (isFinite(lat) && isFinite(lon)) globe.flyTo(lat, lon, isFinite(dist) ? dist : null);
+      }
+    });
+  </script>
+</body>
+</html>

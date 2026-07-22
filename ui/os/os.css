@@ -78,7 +78,8 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg) } }
 
 /* ── Dashboard ──────────────────────────────────────────────────────────── */
-#globe-slot { width: min(64vmin, 780px); aspect-ratio: 1; }
+#core-slot { width: min(52vmin, 640px); }
+#core-idle { width: 100%; height: auto; display: block; }
 
 .globe-label {
   position: absolute; top: 0; left: 0;

@@ -60,6 +60,10 @@ Actions you can trigger by including them in your response:
   [ACTION:os:globe|heat] / [ACTION:os:globe|wind] / [ACTION:os:globe|rain] / [ACTION:os:globe|clear]
   [ACTION:os:fly|<lat>,<lon>] — glide the globe to a place, e.g. Tenerife: [ACTION:os:fly|28.3,-16.6]
   Combine them: "show me the heat over Spain" → [ACTION:os:globe|heat][ACTION:os:fly|40.4,-3.7]
+- THE STAGE (the screen where you place things for {name}):
+  [ACTION:os:open|https://url] — open a web page on THE STAGE (articles, docs, videos)
+  [ACTION:os:note|SHORT TEXT] — pin a short note on THE STAGE
+  [ACTION:os:close|] — clear THE STAGE
 - To delegate to a specialist agent: [ACTION:agent:vision|command text]
   Replace 'vision' with: vision / ultron / friday / gresz
   Example: [ACTION:agent:vision|add a plan called Revision Week due June 18]
@@ -187,7 +191,9 @@ class Orchestrator:
                     f"claude CLI error (rc={result.returncode}) "
                     f"stderr={result.stderr[:300]!r} stdout={result.stdout[:300]!r}"
                 )
-                if "authentication_error" in result.stdout or "401" in result.stdout:
+                if ("authentication_error" in result.stdout or "401" in result.stdout
+                        or "Failed to authenticate" in result.stdout
+                        or "OAuth" in result.stdout):
                     return ("My connection to the Claude brain has expired. "
                             "Run 'claude' in a terminal and complete the login, "
                             "then I'll be back at full capacity.")
@@ -196,6 +202,11 @@ class Orchestrator:
             try:
                 payload = json.loads(result.stdout)
                 text = (payload.get("result") or "").strip()
+                if payload.get("is_error") and ("authenticate" in text.lower()
+                                                or "oauth" in text.lower()):
+                    return ("My connection to the Claude brain has expired. "
+                            "Run 'claude' in a terminal and complete the login, "
+                            "then I'll be back at full capacity.")
                 cost = float(payload.get("total_cost_usd") or 0)
                 if cost:
                     budget_record("orchestrator", cost,

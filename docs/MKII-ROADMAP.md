@@ -18,7 +18,9 @@
 > - Voice stack upgrade path: Deepgram STT + Cartesia TTS + Sonnet streaming
 >   (current Whisper + `say`/ElevenLabs is the placeholder).
 
-**Status: Phase 0 ✓ · Phase 1 live ✓ · Phase 2 built ✓ · Globe 3.1–3.4 live on dashboard + STAGE ✓ — next: globe news/radio/flights, or the island**
+**Status: Phase 0 ✓ · Phase 1 live ✓ · Phase 2 built ✓ · Globe 3.1–3.4 ✓ — next: globe news/radio/flights, or the island**
+
+**Window layout (Evan's 3 screens, 2026-07-22):** screen 1 = the Jarvis window (`/os` — rings, voice, boot); screen 2 = the Globe overview (`/globe`); screen 3 = THE STAGE (`/stage` — Jarvis opens pages/notes there via `[ACTION:os:open|url]`, `[ACTION:os:note|text]`, `[ACTION:os:close|]`). `JARVIS_OS=1` opens all three fullscreen automatically when the displays are present.
 
 ---
 

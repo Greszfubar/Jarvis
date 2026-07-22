@@ -5,61 +5,96 @@
 <title>THE STAGE</title>
 <link rel="stylesheet" href="/os/static/os.css">
 <style>
-  #stage-globe { position: fixed; inset: 0; }
-  #stage-mode {
-    position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
-    font-size: 10px; letter-spacing: 0.55em; text-transform: uppercase;
-    color: var(--dim); padding-left: 0.55em;
-    opacity: 0; transition: opacity .6s ease;
+  #stage-idle {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; transition: opacity .8s ease;
   }
-  #stage-mode.on { opacity: 1 }
+  #stage-idle .t {
+    font-size: 13px; letter-spacing: 0.65em; text-transform: uppercase;
+    color: var(--dim); padding-left: 0.65em;
+  }
+  #stage-idle .s {
+    font-size: 9px; letter-spacing: 0.4em; text-transform: uppercase;
+    color: var(--faint); padding-left: 0.4em;
+  }
+  #stage-idle.off { opacity: 0; pointer-events: none; }
+
+  /* Jarvis's opened content fills the stage */
+  #stage-frame {
+    position: fixed; inset: 3vh 3vw; z-index: 2;
+    border: 1px solid var(--faint); border-radius: 3px;
+    background: #000; width: auto; height: auto;
+    display: none;
+  }
+  #stage-frame.on { display: block; }
+  #stage-frame iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+
+  #stage-note {
+    position: fixed; bottom: 8vh; left: 50%; transform: translateX(-50%);
+    max-width: 70vw; text-align: center; z-index: 2;
+    font-size: 16px; font-weight: 300; letter-spacing: 0.08em; line-height: 1.7;
+    color: var(--white); text-shadow: 0 0 24px rgba(77,163,255,.25);
+    opacity: 0; transition: opacity .5s ease;
+  }
+  #stage-note.on { opacity: 1; }
+
   #stage-footnote {
-    position: fixed; bottom: 4vh; left: 50%; transform: translateX(-50%);
-    font-size: 10px; letter-spacing: 0.6em; text-transform: uppercase;
-    color: var(--dim); padding-left: 0.6em;
+    position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%); z-index: 1;
+    font-size: 9px; letter-spacing: 0.6em; text-transform: uppercase;
+    color: var(--faint); padding-left: 0.6em;
   }
 </style>
 </head>
 <body>
   <canvas id="dots"></canvas>
-  <div id="stage-globe"></div>
-  <div id="stage-mode"></div>
+
+  <div id="stage-idle">
+    <div class="t">THE STAGE</div>
+    <div class="s">JARVIS will place things here</div>
+  </div>
+
+  <div id="stage-frame"><iframe id="stage-iframe" src="about:blank"></iframe></div>
+  <div id="stage-note"></div>
   <div id="stage-footnote">GRESZ INDUSTRIES</div>
 
   <script type="module">
     import "/os/static/js/dots.js";
-    import { Globe } from "/os/static/js/globe.js";
     import { EventLink } from "/os/static/js/ws.js";
 
-    const globe = new Globe(document.getElementById("stage-globe"));
-    await globe.init();
+    const idle = document.getElementById("stage-idle");
+    const frame = document.getElementById("stage-frame");
+    const iframe = document.getElementById("stage-iframe");
+    const note = document.getElementById("stage-note");
+    let noteTimer = null;
 
-    const modeEl = document.getElementById("stage-mode");
-    function setMode(m) {
-      globe.setMode(m);
-      modeEl.textContent = m === "clear" ? "" : `GLOBE — ${m.toUpperCase()}`;
-      modeEl.classList.toggle("on", m !== "clear");
+    function openUrl(url) {
+      if (!/^https?:\/\//.test(url)) return;
+      iframe.src = url;
+      frame.classList.add("on");
+      idle.classList.add("off");
+    }
+    function closeStage() {
+      frame.classList.remove("on");
+      iframe.src = "about:blank";
+      idle.classList.remove("off");
+    }
+    function showNote(text, ms) {
+      note.textContent = text;
+      note.classList.add("on");
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(() => note.classList.remove("on"),
+        ms ?? Math.max(5000, text.split(/\s+/).length * 320));
     }
 
-    // Dev/demo: /stage?mode=heat&fly=28.3,-16.6
-    const q = new URLSearchParams(location.search);
-    if (q.get("mode")) setMode(q.get("mode"));
-    if (q.get("fly")) {
-      const [lat, lon] = q.get("fly").split(",").map(Number);
-      if (isFinite(lat) && isFinite(lon)) setTimeout(() => globe.flyTo(lat, lon), 800);
-    }
-
-    // Voice-driven: [ACTION:os:globe|heat] / [ACTION:os:fly|lat,lon]
     new EventLink((d) => {
-      if (d.kind !== "os") return;
-      if (d.command === "globe" && d.arg) {
-        const m = d.arg.trim().toLowerCase();
-        if (["heat", "wind", "rain", "clear"].includes(m)) setMode(m);
+      if (d.kind === "os") {
+        if (d.command === "open" && d.arg) openUrl(d.arg.trim());
+        if (d.command === "close") closeStage();
+        if (d.command === "note" && d.arg) showNote(d.arg);
       }
-      if (d.command === "fly" && d.arg) {
-        const [lat, lon, dist] = String(d.arg).split(",").map(Number);
-        if (isFinite(lat) && isFinite(lon)) globe.flyTo(lat, lon, isFinite(dist) ? dist : null);
-      }
+      // Jarvis's speech echoes quietly on the stage too
+      if (d.kind === "speaking" && d.text) showNote(d.text);
     });
   </script>
 </body>
