@@ -56,6 +56,12 @@ def register_os(app: FastAPI, broadcast):
         lambda p: asyncio.create_task(broadcast("hands", p)),
     )
 
+    # Faint live camera feed frames (JPEG base64, ~10 fps)
+    bus.subscribe(
+        "hands.frame",
+        lambda p: asyncio.create_task(broadcast("hands_frame", p)),
+    )
+
     @app.post("/api/os/camera")
     async def os_camera(body: dict):
         """Camera button — start/stop the hand-tracking service."""

@@ -1,9 +1,24 @@
 # JARVIS MK II — Roadmap
 
-> Build order for `MKII-PRD.md`. Each phase ends with something Evan can stand in
-> front of and feel. Check boxes as tasks complete; keep the status line current.
+> ⚠ **Canonical plan updated 2026-07-22**: `MKII-MASTER-OVERVIEW.md` (what it is)
+> and `MKII-DEV-PLAN.md` (Demo → Launch → Cognition → Full) are now the source of
+> truth. This file tracks the *current build* — the Demo-phase spine running on
+> the MacBook until the M5 mini + 3 screens + OBSBOT arrive.
+>
+> Key reconciliations with the new plan:
+> - What's built (boot, voice shell, gesture tracking) = the Demo-phase spine.
+>   The Face (Screen 1), Brain & Vitals (Screen 2), and 3-screen Electron kiosk
+>   need the real hardware; current pywebview shell carries development until then.
+> - Gestures move to **relative, trackpad-style mapping** (new plan) during the
+>   2.6 tuning pass — current absolute mapping is the placeholder.
+> - Business engine = **gradeUP** (not Upwork). Hard rule from the first agent:
+>   all student-facing output is human-reviewed — gradeUP users are minors.
+> - Phase-0 safety scaffolding (permission gate, rollback spine, vault, budget
+>   governor) must land before Patch or any installable agent gets real access.
+> - Voice stack upgrade path: Deepgram STT + Cartesia TTS + Sonnet streaming
+>   (current Whisper + `say`/ElevenLabs is the placeholder).
 
-**Status: Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — Phase 3 (the Globe) next**
+**Status: Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — next: Phase-0 safety scaffolding from `MKII-DEV-PLAN.md`, then the Globe**
 
 ---
 

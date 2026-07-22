@@ -70,22 +70,38 @@ class HandsService:
         log.info("Hands: tracking loop live")
 
         try:
+            import base64
+            frame_i = 0
             while not self._stop.is_set():
                 ok, frame = cap.read()
                 if not ok:
                     time.sleep(0.05)
                     continue
+                # Mirror once at the source: gestures AND the on-screen feed
+                # both behave like a mirror (hand right → cursor right)
+                frame = cv2.flip(frame, 1)
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 result = hands.process(rgb)
 
                 lm = None
                 if result.multi_hand_landmarks:
                     pts = result.multi_hand_landmarks[0].landmark
-                    # Mirror x so moving your hand right moves the cursor right
-                    lm = [(1.0 - p.x, p.y) for p in pts]
+                    lm = [(p.x, p.y) for p in pts]
 
                 for ev in engine.update(lm):
                     bus.publish_sync("hands.event", ev)
+
+                # Faint live feed behind the OS — every 3rd frame (~10 fps)
+                frame_i += 1
+                if frame_i % 3 == 0:
+                    small = cv2.resize(frame, (480, 270))
+                    ok_j, jpg = cv2.imencode(
+                        ".jpg", small, [int(cv2.IMWRITE_JPEG_QUALITY), 45]
+                    )
+                    if ok_j:
+                        bus.publish_sync("hands.frame", {
+                            "jpg": base64.b64encode(jpg.tobytes()).decode("ascii"),
+                        })
         finally:
             cap.release()
             hands.close()

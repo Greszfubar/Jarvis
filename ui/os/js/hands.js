@@ -36,6 +36,17 @@ export class Hands {
   setActive(on) {
     this.active = on;
     if (!on) { this.visible = false; this.trail = []; }
+    const feed = document.getElementById("cam-feed");
+    if (feed) {
+      feed.classList.toggle("on", on);
+      if (!on) feed.removeAttribute("src");   // drop the last frame when off
+    }
+  }
+
+  showFrame(jpgB64) {
+    if (!this.active) return;
+    const feed = document.getElementById("cam-feed");
+    if (feed) feed.src = "data:image/jpeg;base64," + jpgB64;
   }
 
   handle(d) {

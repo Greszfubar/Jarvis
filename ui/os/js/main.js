@@ -108,6 +108,9 @@ const link = new EventLink((d) => {
     case "hands":
       hands.handle(d);
       break;
+    case "hands_frame":
+      hands.showFrame(d.jpg);
+      break;
   }
 });
 

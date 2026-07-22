@@ -307,11 +307,26 @@ def setup_browser_voice():
 
 def _build_startup_briefing() -> str:
     """
-    Build a full spoken launch briefing by reading live data from every agent's
-    SQLite store.  Covers: greeting, weather, calendar, email, security (Ultron),
-    business (Gresz), content (Friday).  Works entirely from cached DB state so
-    it's fast and doesn't block on any network calls.
+    MK II greeting — short and clean. The old MK I version read stale data out
+    of every agent store (gazette editions, pipelines); the proper morning
+    brief now belongs to the night cycle (Planning), not the boot greeting.
     """
+    import datetime
+
+    user = env("USER_NAME", "Sir")
+    hour = datetime.datetime.now().hour
+    if hour < 12:
+        salutation = "Good morning"
+    elif hour < 18:
+        salutation = "Good afternoon"
+    else:
+        salutation = "Good evening"
+
+    return f"{salutation}, {user}. JARVIS is online. All systems operational."
+
+
+def _build_startup_briefing_mk1() -> str:
+    """MK I's full data-dump briefing — retired, kept for reference."""
     import json
     import sqlite3
     import datetime
