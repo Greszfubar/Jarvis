@@ -31,18 +31,22 @@
     import { Globe } from "/os/static/js/globe.js";
     import { EventLink } from "/os/static/js/ws.js";
 
-    const globe = new Globe(document.getElementById("globe-view"));
-    await globe.init();
-
     const modeEl = document.getElementById("stage-mode");
-    function setMode(m) {
-      globe.setMode(m);
-      modeEl.textContent = m === "clear" ? "" : `GLOBE — ${m.toUpperCase()}`;
-      modeEl.classList.toggle("on", m !== "clear");
-    }
+    const globe = new Globe(document.getElementById("globe-view"), {
+      onModeChange: (m) => {
+        // Reflects every mode change — including the auto-revert to clear
+        modeEl.textContent = m === "clear" ? "" : `GLOBE — ${m.toUpperCase()}`;
+        modeEl.classList.toggle("on", m !== "clear");
+      },
+    });
+    await globe.init();
+    window.__globe = globe;   // dev inspection
 
-    // Dev/demo: /stage?mode=heat&fly=28.3,-16.6
+    const setMode = (m) => globe.setMode(m);
+
+    // Dev/demo: /globe?mode=heat&fly=28.3,-16.6&hold=8
     const q = new URLSearchParams(location.search);
+    if (q.get("hold")) globe.holdMs = Number(q.get("hold")) * 1000;
     if (q.get("mode")) setMode(q.get("mode"));
     if (q.get("fly")) {
       const [lat, lon] = q.get("fly").split(",").map(Number);

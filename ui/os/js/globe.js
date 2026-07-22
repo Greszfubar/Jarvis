@@ -12,8 +12,22 @@ import * as THREE from "/os/static/vendor/three.module.js";
 const R = 100;                       // globe radius (scene units)
 const IDLE_SPIN = 0.04;              // rad/s when untouched
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
+const FOCUS_HOLD_MS = 75 * 1000;     // after a fly/mode command: hold still,
+                                     // then auto-clear + resume natural spin
 
 const PORT_CALVERA = { lat: 36.8, lon: -34.2 };
+
+// Cities that get on-globe temperature labels in heat mode
+const LABEL_CITIES = [
+  { name: "LONDON", lat: 51.5, lon: -0.13 },   { name: "MADRID", lat: 40.4, lon: -3.7 },
+  { name: "NEW YORK", lat: 40.7, lon: -74.0 }, { name: "LOS ANGELES", lat: 34.1, lon: -118.2 },
+  { name: "SÃO PAULO", lat: -23.6, lon: -46.6 }, { name: "CAIRO", lat: 30.0, lon: 31.2 },
+  { name: "LAGOS", lat: 6.5, lon: 3.4 },       { name: "MOSCOW", lat: 55.8, lon: 37.6 },
+  { name: "DUBAI", lat: 25.2, lon: 55.3 },     { name: "DELHI", lat: 28.6, lon: 77.2 },
+  { name: "BEIJING", lat: 39.9, lon: 116.4 },  { name: "TOKYO", lat: 35.7, lon: 139.7 },
+  { name: "SINGAPORE", lat: 1.35, lon: 103.8 },{ name: "SYDNEY", lat: -33.9, lon: 151.2 },
+  { name: "CAPE TOWN", lat: -33.9, lon: 18.4 },{ name: "REYKJAVÍK", lat: 64.1, lon: -21.9 },
+];
 
 function toXYZ(lat, lon, r = R) {
   const la = THREE.MathUtils.degToRad(lat), lo = THREE.MathUtils.degToRad(lon);
@@ -25,14 +39,18 @@ function toXYZ(lat, lon, r = R) {
 }
 
 export class Globe {
-  constructor(container, { onPinClick } = {}) {
+  constructor(container, { onPinClick, onModeChange } = {}) {
     this.el = container;
     this.onPinClick = onPinClick || (() => {});
+    this.onModeChange = onModeChange || (() => {});
     this.mode = "clear";
     this._vel = 0;                    // drag inertia (rad/frame)
     this._lastInteract = 0;
     this._fly = null;                 // active glide animation
     this._weatherTimer = null;
+    this._holdUntil = 0;              // while focused: no idle spin
+    this._modeLabels = [];            // temp labels (heat mode)
+    this.holdMs = FOCUS_HOLD_MS;      // overridable (dev/testing)
   }
 
   async init() {
@@ -59,16 +77,19 @@ export class Globe {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
-    // ── Landmass dot field ────────────────────────────────────────────────
+    // ── Landmass dot field (vertex-coloured so heat mode can paint it) ────
+    this._landDots = dots;            // [lat, lon] per dot — kept for recolour
     const pos = new Float32Array(dots.length * 3);
+    const col = new Float32Array(dots.length * 3).fill(1);
     dots.forEach(([lat, lon], i) => {
       const v = toXYZ(lat, lon);
       pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
     this.landPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xf2f4f6, size: 1.35, sizeAttenuation: true,
+      color: 0xf2f4f6, vertexColors: true, size: 1.35, sizeAttenuation: true,
       transparent: true, opacity: 0.85, depthWrite: false,
     }));
     this.group.add(this.landPoints);
@@ -167,33 +188,97 @@ export class Globe {
 
   async setMode(mode) {
     this.mode = mode;
+    this.onModeChange(mode);
     clearTimeout(this._weatherTimer);
+    this._clearWeatherLayer();
+    if (mode === "clear") {
+      this._holdUntil = 0;            // release the focus hold → natural spin
+      return;
+    }
+    this._holdUntil = performance.now() + this.holdMs;
+
+    let cities;
+    try {
+      cities = (await (await fetch(`/api/globe/weather`)).json()).cities || [];
+    } catch { return; }
+    if (this.mode !== mode) return;   // mode changed while fetching
+
+    if (mode === "heat") {
+      this._paintHeat(cities);
+    } else {
+      this._buildMarkerLayer(mode, cities);
+    }
+    this._weatherTimer = setTimeout(() => this.setMode(mode), WEATHER_REFRESH_MS);
+  }
+
+  _clearWeatherLayer() {
     if (this.weatherPoints) {
       this.group.remove(this.weatherPoints);
       this.weatherPoints.geometry.dispose();
       this.weatherPoints.material.dispose();
       this.weatherPoints = null;
     }
-    if (mode === "clear") return;
+    // reset land dots to white
+    const col = this.landPoints.geometry.getAttribute("color");
+    col.array.fill(1);
+    col.needsUpdate = true;
+    // drop temp labels
+    for (const l of this._modeLabels) l.label.remove();
+    this._modeLabels = [];
+  }
 
-    let cities;
-    try {
-      cities = (await (await fetch(`/api/globe/weather`)).json()).cities || [];
-    } catch { return; }
+  // Heat: the land itself takes the temperature colour, interpolated from
+  // the city grid (inverse-distance weighting on the unit sphere)
+  _paintHeat(cities) {
+    const cityVecs = cities.map((ct) => {
+      const v = toXYZ(ct.lat, ct.lon, 1);
+      return { x: v.x, y: v.y, z: v.z, t: ct.t };
+    });
+    const col = this.landPoints.geometry.getAttribute("color");
+    const c = new THREE.Color();
+    this._landDots.forEach(([lat, lon], i) => {
+      const v = toXYZ(lat, lon, 1);
+      let wSum = 0, tSum = 0;
+      for (const ct of cityVecs) {
+        const dot = Math.max(-1, Math.min(1, v.x * ct.x + v.y * ct.y + v.z * ct.z));
+        const d = Math.acos(dot) + 0.02;              // great-circle distance
+        const w = 1 / (d * d);
+        wSum += w; tSum += w * ct.t;
+      }
+      const t = tSum / wSum;
+      const k = Math.max(0, Math.min(1, (t + 25) / 70));   // -25..45°C
+      c.setHSL(0.66 - 0.66 * k, 0.85, 0.3 + 0.35 * k);     // blue → red
+      col.array[i * 3] = c.r; col.array[i * 3 + 1] = c.g; col.array[i * 3 + 2] = c.b;
+    });
+    col.needsUpdate = true;
 
+    // Temperature labels for landmark cities
+    for (const lc of LABEL_CITIES) {
+      let best = null, bestD = 1e9;
+      for (const ct of cities) {
+        const d = (ct.lat - lc.lat) ** 2 + (ct.lon - lc.lon) ** 2;
+        if (d < bestD) { bestD = d; best = ct; }
+      }
+      if (!best) continue;
+      const label = document.createElement("div");
+      label.className = "globe-templabel";
+      label.innerHTML = `<span class="tn">${lc.name}</span><span class="tt">${Math.round(best.t)}°</span>`;
+      this.el.appendChild(label);
+      this._modeLabels.push({ local: toXYZ(lc.lat, lc.lon, R + 2), label });
+    }
+  }
+
+  _buildMarkerLayer(mode, cities) {
     const pos = new Float32Array(cities.length * 3);
     const col = new Float32Array(cities.length * 3);
     const c = new THREE.Color();
     cities.forEach((ct, i) => {
       const v = toXYZ(ct.lat, ct.lon, R + 1.2);
       pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-      if (mode === "heat") {
-        const k = Math.max(0, Math.min(1, (ct.t + 20) / 65));      // -20..45°C
-        c.setHSL(0.66 - 0.66 * k, 0.9, 0.35 + 0.3 * k);
-      } else if (mode === "wind") {
+      if (mode === "wind") {
         const k = Math.max(0, Math.min(1, ct.w / 70));             // 0..70 km/h
         c.setHSL(0.5, 0.85, 0.25 + 0.55 * k);
-      } else if (mode === "rain") {
+      } else {                                                     // rain
         const k = Math.max(0.06, Math.min(1, ct.p / 6));           // 0..6 mm
         c.setHSL(0.6, 0.9, 0.18 + 0.55 * k);
       }
@@ -208,7 +293,6 @@ export class Globe {
       blending: THREE.AdditiveBlending,
     }));
     this.group.add(this.weatherPoints);
-    this._weatherTimer = setTimeout(() => this.setMode(mode), WEATHER_REFRESH_MS);
   }
 
   // ── Fly-to glide ────────────────────────────────────────────────────────
@@ -231,6 +315,8 @@ export class Globe {
       fromD: this.camDist, toD: target.dist,
     };
     this._lastInteract = performance.now();
+    // Focused on a place: hold position (no idle drift) until the hold expires
+    this._holdUntil = performance.now() + this.holdMs;
   }
 
   zoomBy(factor) {
@@ -279,6 +365,21 @@ export class Globe {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
     }
+    const now = performance.now();
+    const held = now < this._holdUntil;
+
+    // Focus hold expired with a mode still on → revert to the default globe:
+    // clear markers/colours, ease back, resume the natural spin.
+    // (Runs before the size guard — behaviour must not depend on rendering.)
+    if (!held && this._holdUntil !== 0) {
+      this._holdUntil = 0;
+      if (this.mode !== "clear") this.setMode("clear");
+      this._fly = { t: 0, dur: 2.0,
+        fromX: this.group.rotation.x, toX: 0,
+        fromY: this.group.rotation.y, toY: this.group.rotation.y,
+        fromD: this.camDist, toD: R * 3.1 };
+    }
+
     if (!w || !h) return;
 
     if (this._fly) {
@@ -290,7 +391,9 @@ export class Globe {
       this.group.rotation.y = f.fromY + (f.toY - f.fromY) * e;
       this.camDist = f.fromD + (f.toD - f.fromD) * e;
       if (k >= 1) this._fly = null;
-    } else if (performance.now() - this._lastInteract > 4000) {
+    } else if (held) {
+      // Focused: stay exactly where Jarvis put the globe — no drift
+    } else if (now - this._lastInteract > 4000) {
       this.group.rotation.y += IDLE_SPIN * dt;        // natural spin
       // ease tilt back to equator view
       this.group.rotation.x *= (1 - 0.4 * dt);
@@ -301,18 +404,22 @@ export class Globe {
 
     this.camera.position.z = this.camDist;
 
-    // Project pin labels; fade when the pin rotates behind the globe
-    for (const pin of this.pins) {
-      const world = pin.mesh.getWorldPosition(new THREE.Vector3());
+    // Project labels (pins + heat-mode temps); fade behind the horizon
+    const projectLabel = (world, label, interactive) => {
       const toCam = this.camera.position.clone().sub(world).normalize();
-      const normal = world.clone().normalize();
-      const facing = normal.dot(toCam);
+      const facing = world.clone().normalize().dot(toCam);
       const proj = world.clone().project(this.camera);
       const x = (proj.x * 0.5 + 0.5) * w;
       const y = (-proj.y * 0.5 + 0.5) * h;
-      pin.label.style.transform = `translate(-50%, -110%) translate(${x}px, ${y - 10}px)`;
-      pin.label.style.opacity = facing > 0.12 ? String(Math.min(1, facing * 1.6)) : "0";
-      pin.label.style.pointerEvents = facing > 0.12 ? "auto" : "none";
+      label.style.transform = `translate(-50%, -110%) translate(${x}px, ${y - 10}px)`;
+      label.style.opacity = facing > 0.12 ? String(Math.min(1, facing * 1.6)) : "0";
+      label.style.pointerEvents = interactive && facing > 0.12 ? "auto" : "none";
+    };
+    for (const pin of this.pins) {
+      projectLabel(pin.mesh.getWorldPosition(new THREE.Vector3()), pin.label, true);
+    }
+    for (const ml of this._modeLabels) {
+      projectLabel(ml.local.clone().applyMatrix4(this.group.matrixWorld), ml.label, false);
     }
 
     this.renderer.render(this.scene, this.camera);
