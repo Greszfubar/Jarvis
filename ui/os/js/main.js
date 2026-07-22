@@ -11,6 +11,7 @@ import { Waveform } from "./waveform.js";
 import { AudioLink } from "./audio.js";
 import { EventLink } from "./ws.js";
 import { Hud } from "./hud.js";
+import { Hands } from "./hands.js";
 
 const $ = (id) => document.getElementById(id);
 const scenes = { boot: $("boot"), gresz: $("card-gresz"), launch: $("card-launch"), dash: $("dashboard") };
@@ -24,9 +25,19 @@ audio.start();
 // WebKit requires a user gesture before audio can start
 document.addEventListener("click", () => audio.resume(), { once: false });
 
+const hands = new Hands({ onStatus: (msg) => hud.showBanner(msg, 3200) });
+
 const hud = new Hud({
   onUtterance: (text) => link.say(text),
   onMicToggle: (on) => audio.setEnabled(on),
+  onCamToggle: (on) => {
+    hands.setActive(on);
+    fetch("/api/os/camera", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on }),
+    }).catch(() => {});
+  },
   onShutdown: () => {
     hud.showBanner("SHUTTING DOWN", 4000);
     fetch("/api/os/shutdown", { method: "POST" }).catch(() => {});
@@ -94,12 +105,17 @@ const link = new EventLink((d) => {
     case "os":
       if (d.command === "banner" && d.arg) hud.showBanner(String(d.arg).toUpperCase());
       break;
+    case "hands":
+      hands.handle(d);
+      break;
   }
 });
 
 // ── Dev simulation (?sim=1) ─────────────────────────────────────────────────
 if (new URLSearchParams(location.search).has("sim")) {
-  $("boot-hint").textContent += "  ·  sim: c l s d r";
+  $("boot-hint").textContent += "  ·  sim: c l s d r h p";
+  window.__os = { hands, hud, waveform };   // sim-mode debug handle
+  let mouseHand = false;
   document.addEventListener("keydown", (e) => {
     if (document.activeElement === $("cmd")) return;
     if (e.key === "c") ignite();
@@ -107,5 +123,18 @@ if (new URLSearchParams(location.search).has("sim")) {
     if (e.key === "s") { waveform.setSpeaking(true); hud.showSubtitle("Good evening, Evan. All systems are operational and standing by."); }
     if (e.key === "d") waveform.setSpeaking(false);
     if (e.key === "r") hud.showBanner("OS EVENT CHANNEL LIVE");
+    // h = mouse-as-hand (tests the full hands pipeline without a camera)
+    if (e.key === "h") {
+      mouseHand = !mouseHand;
+      hands.setActive(mouseHand);
+      hud.showBanner(mouseHand ? "SIM HAND — MOVE MOUSE, P TO PINCH" : "SIM HAND OFF", 2600);
+    }
+    if (e.key === "p" && mouseHand) {
+      hands.handle({ type: "pinch_down", x: hands.x / innerWidth, y: hands.y / innerHeight });
+      setTimeout(() => hands.handle({ type: "pinch_up", x: hands.x / innerWidth, y: hands.y / innerHeight }), 180);
+    }
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (mouseHand) hands.handle({ type: "cursor", x: e.clientX / innerWidth, y: e.clientY / innerHeight, pinched: false });
   });
 }

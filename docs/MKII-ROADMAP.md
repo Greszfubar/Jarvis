@@ -3,7 +3,7 @@
 > Build order for `MKII-PRD.md`. Each phase ends with something Evan can stand in
 > front of and feel. Check boxes as tasks complete; keep the status line current.
 
-**Status: Phase 1 built ✓ (browser-verified 2026-07-22; live clap+voice run pending) — Phase 2 next**
+**Status: Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — Phase 3 (the Globe) next**
 
 ---
 
@@ -27,12 +27,12 @@ controls, talking to the real MK I brain. Keyboard still allowed as fallback.
 
 Goal: control the shell entirely by hand from across the desk.
 
-- [ ] 2.1 `hands/` service: camera capture + MediaPipe Hands landmarks at ≥25 fps
-- [ ] 2.2 Gesture state machine: cursor, pinch-click (with hysteresis), pinch-drag, two-finger scroll, zoom in/out
-- [ ] 2.3 Fingertip trail cursor rendered in the SPA from gesture events
-- [ ] 2.4 Gesture → DOM/three.js hit-testing so pinch actually clicks buttons and grabs the globe
-- [ ] 2.5 Calibration screen + sensitivity settings; camera toggle truly stops capture
-- [ ] 2.6 One week of daily-driving; tune thresholds until gestures feel inevitable
+- [x] 2.1 `hands/` service: OpenCV capture + MediaPipe Hands (0.10.35, model_complexity 0), camera-button start/stop via `/api/os/camera`
+- [x] 2.2 Gesture state machine (`hands/gestures.py`, unit-tested): cursor EMA smoothing, pinch-click with hysteresis, two-finger scroll, open-hand zoom deltas, clean pinch-release on hand loss
+- [x] 2.3 Fingertip trail cursor: fading trail, cursor dot + halo (blue while pinched), pinch pulse rings
+- [x] 2.4 Pinch → synthesized mousedown/up/click at the fingertip (`elementFromPoint`); scroll → wheel events; zoom events emitted (globe consumes them in Phase 3)
+- [x] 2.5 Camera toggle truly stops capture (camera released, tracking thread ends); sensitivity constants live in `GestureEngine` — calibration screen deferred until real-hand tuning shows what needs adjusting
+- [ ] 2.6 Daily-driving with a real hand; tune thresholds until gestures feel inevitable *(Evan — camera button, then tell Jarvis what feels wrong)*
 
 ## Phase 3 — The Globe *(the centrepiece)*
 

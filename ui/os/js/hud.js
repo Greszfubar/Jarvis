@@ -1,7 +1,7 @@
 // HUD — control bar, overlays, subtitles, keyboard command bar.
 
 export class Hud {
-  constructor({ onUtterance, onMicToggle, onShutdown }) {
+  constructor({ onUtterance, onMicToggle, onCamToggle, onShutdown }) {
     this.onUtterance = onUtterance;
     this.subtitle = document.getElementById("subtitle");
     this.subtitleHeard = document.getElementById("subtitle-heard");
@@ -17,12 +17,13 @@ export class Hud {
       onMicToggle(mic.classList.contains("active"));
     });
 
-    // Camera — Phase 2 stub
+    // Camera — hand tracking on/off
     const cam = document.getElementById("btn-cam");
     cam.addEventListener("click", () => {
       cam.classList.toggle("active");
-      this.showBanner(cam.classList.contains("active")
-        ? "HAND TRACKING — ARRIVES IN PHASE 2" : "CAMERA OFF", 2600);
+      const on = cam.classList.contains("active");
+      this.showBanner(on ? "HAND TRACKING STARTING…" : "CAMERA OFF", 2600);
+      onCamToggle(on);
     });
 
     // Settings

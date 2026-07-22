@@ -86,6 +86,8 @@ register_os(app, lambda kind, payload: _broadcast(kind, payload))
 
 @app.on_event("startup")
 async def _setup_bus():
+    # Let sync threads (hands camera loop, speaker) publish onto this loop
+    bus.set_loop(asyncio.get_event_loop())
     bus.subscribe("jarvis.alert",        lambda p: asyncio.create_task(_broadcast("alert",     p)))
     bus.subscribe("jarvis.briefing",     lambda p: asyncio.create_task(_broadcast("briefing",  p)))
     bus.subscribe("gmail.new",           lambda p: asyncio.create_task(_broadcast("gmail",     p)))

@@ -23,6 +23,11 @@ html, body {
 
 #dots { position: fixed; inset: 0; z-index: 0; }
 
+#hand-trail {
+  position: fixed; inset: 0; z-index: 9;
+  pointer-events: none;   /* the trail never blocks pinch-synthesized clicks */
+}
+
 /* ── Scenes ─────────────────────────────────────────────────────────────── */
 .scene {
   position: fixed; inset: 0; z-index: 1;

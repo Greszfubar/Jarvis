@@ -50,6 +50,27 @@ def register_os(app: FastAPI, broadcast):
         lambda p: asyncio.create_task(broadcast("os", p)),
     )
 
+    # Hand tracking events: hands.service (camera thread) → bus → browser
+    bus.subscribe(
+        "hands.event",
+        lambda p: asyncio.create_task(broadcast("hands", p)),
+    )
+
+    @app.post("/api/os/camera")
+    async def os_camera(body: dict):
+        """Camera button — start/stop the hand-tracking service."""
+        on = bool(body.get("on", False))
+        try:
+            from hands.service import get_hands
+            if on:
+                get_hands().start()
+            else:
+                get_hands().stop()
+            return {"camera": on}
+        except Exception as e:
+            log.error(f"hands toggle failed: {e}")
+            return {"camera": False, "error": str(e)}
+
     @app.post("/api/os/voice")
     async def os_voice(body: dict):
         """Toggle in-OS voice mode — every utterance is a command, no wake word."""

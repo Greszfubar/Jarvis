@@ -170,6 +170,10 @@ class Orchestrator:
                     f"claude CLI error (rc={result.returncode}) "
                     f"stderr={result.stderr[:300]!r} stdout={result.stdout[:300]!r}"
                 )
+                if "authentication_error" in result.stdout or "401" in result.stdout:
+                    return ("My connection to the Claude brain has expired. "
+                            "Run 'claude' in a terminal and complete the login, "
+                            "then I'll be back at full capacity.")
                 return "I encountered an issue — check logs."
             return result.stdout.strip()
         except subprocess.TimeoutExpired:

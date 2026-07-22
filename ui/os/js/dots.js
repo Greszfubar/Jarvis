@@ -31,6 +31,9 @@ function seed() {
 }
 
 function frame(t) {
+  // Self-heal: the page can load while the viewport reports 0×0 (webview
+  // prerender) — re-measure whenever the real size differs from ours.
+  if (w !== window.innerWidth || h !== window.innerHeight) resize();
   ctx.clearRect(0, 0, w, h);
   for (const d of dots) {
     d.x += d.vx; d.y += d.vy;
