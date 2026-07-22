@@ -57,16 +57,38 @@ export class Hands {
         this.y = d.y * innerHeight;
         this.pinched = !!d.pinched;
         this.trail.push({ x: this.x, y: this.y, t: performance.now() });
+        // While pinched, a moving fingertip is a drag (spins the globe etc.)
+        if (this._down) this._pointer("pointermove", this.x, this.y, "mousemove");
         break;
-      case "pinch_down":
-        this._click(d.x * innerWidth, d.y * innerHeight);
-        this.rings.push({ x: d.x * innerWidth, y: d.y * innerHeight, t: performance.now() });
+      case "pinch_down": {
+        const x = d.x * innerWidth, y = d.y * innerHeight;
+        this._down = { x, y, t: performance.now(),
+                       target: document.elementFromPoint(x, y) || document.body };
+        this._pointer("pointerdown", x, y, "mousedown", this._down.target);
+        this.rings.push({ x, y, t: performance.now() });
         break;
-      case "pinch_up":
+      }
+      case "pinch_up": {
         this.pinched = false;
+        const x = this.x, y = this.y;
+        if (this._down) {
+          this._pointer("pointerup", x, y, "mouseup");
+          const moved = Math.hypot(x - this._down.x, y - this._down.y);
+          const held = performance.now() - this._down.t;
+          // Short, stationary pinch = a click on what was under the fingertip
+          if (moved < 14 && held < 700) {
+            const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+            this._down.target.dispatchEvent(new MouseEvent("click", opts));
+          }
+          this._down = null;
+        }
         break;
+      }
       case "scroll":
         this._scroll(d.dy * innerHeight);
+        break;
+      case "zoom":
+        window.dispatchEvent(new CustomEvent("jarvis:zoom", { detail: { ds: d.ds } }));
         break;
       case "started":
         this.onStatus("HAND TRACKING ONLINE");
@@ -83,14 +105,14 @@ export class Hands {
     }
   }
 
-  // Synthesize a real click at the fingertip: elements never know it wasn't a mouse
-  _click(x, y) {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return;
-    const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
-    el.dispatchEvent(new MouseEvent("mousedown", opts));
-    el.dispatchEvent(new MouseEvent("mouseup", opts));
-    el.dispatchEvent(new MouseEvent("click", opts));
+  // Synthesize pointer+mouse events at the fingertip: elements (and the
+  // globe's drag controls) never know it wasn't a real mouse
+  _pointer(type, x, y, mouseType, target = null) {
+    const el = target || document.elementFromPoint(x, y) || document.body;
+    const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y,
+                   view: window, pointerId: 7, pointerType: "touch", isPrimary: true };
+    el.dispatchEvent(new PointerEvent(type, opts));
+    if (mouseType) el.dispatchEvent(new MouseEvent(mouseType, opts));
   }
 
   _scroll(dyPx) {

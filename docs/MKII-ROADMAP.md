@@ -18,7 +18,7 @@
 > - Voice stack upgrade path: Deepgram STT + Cartesia TTS + Sonnet streaming
 >   (current Whisper + `say`/ElevenLabs is the placeholder).
 
-**Status: Phase 0 built ✓ · Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — the Globe next**
+**Status: Phase 0 ✓ · Phase 1 live ✓ · Phase 2 built ✓ · Globe 3.1–3.4 live on dashboard + STAGE ✓ — next: globe news/radio/flights, or the island**
 
 ---
 
@@ -65,10 +65,10 @@ Goal: control the shell entirely by hand from across the desk.
 
 Goal: the spinning globe with pins, spinnable by hand, mode-switchable by voice.
 
-- [ ] 3.1 three.js globe: slow idle spin, hand-spinnable, dots aesthetic, "Gresz Industries" footnote
-- [ ] 3.2 Passive state: Madrid + Port Calvera pins with labels and live temperatures
-- [ ] 3.3 Camera glide system: fly to any lat/lon on command ("show me Tenerife")
-- [ ] 3.4 Weather mode: heat / wind / rain overlays (Open-Meteo), world or focused
+- [x] 3.1 three.js globe (`ui/os/js/globe.js`): 6,690-dot landmass field (generated from Natural Earth 110m by `scripts/gen_globe_dots.py`), graticule, idle spin, drag-spin with inertia (mouse + pinch-drag), wheel/open-hand zoom. Lives on the dashboard AND fullscreen as THE STAGE's default view (`/stage`, second kiosk window on display 2 in OS mode)
+- [x] 3.2 Passive pins: Home (live city+temp from the weather agent — currently Petersfield) + Alto Norte, Nova Calvera (Gresz Industries, 48°); labels project with the globe and fade behind the horizon
+- [x] 3.3 Camera glide: `flyTo(lat, lon)` easing spin+zoom; voice-driven via `[ACTION:os:fly|lat,lon]`
+- [x] 3.4 Weather modes: heat / wind / rain from one batched Open-Meteo call over 135 world cities (30-min cache, `/api/globe/weather`); voice via `[ACTION:os:globe|heat]`; verified live (135 cities, real data)
 - [ ] 3.5 News mode: stories pinned to the globe from the news agent; pinch to open article/video natively in an OS window
 - [ ] 3.6 Radio mode: globe as tuner via radio-browser.info; zoom into a station to listen
 - [ ] 3.7 Flights: live plane arcs (OpenSky) + route view with flight info panel
@@ -93,7 +93,7 @@ Goal: fly from the globe into wireframe cities where every building is a live su
 
 Goal: second screen alive; "I'm signing off" hands the machine to Jarvis until morning.
 
-- [ ] 5.1 Second kiosk window at `/stage` on display 2, with graceful single-display fallback
+- [x] 5.1 Second kiosk window at `/stage` on display 2 (landed early with the globe — graceful single-display fallback included); STAGE content beyond the globe still to come
 - [ ] 5.2 Sign-off trigger phrases → end-of-day overview: news, messages, Port Calvera summary
 - [ ] 5.3 Dreaming: nightly memory consolidation (extend `ConsolidationAgent`) with visible dream log
 - [ ] 5.4 Planning: overnight plan + morning brief rendered on wake

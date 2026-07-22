@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,13 +23,40 @@ log = logging.getLogger("jarvis.os")
 
 _OS_DIR = Path(__file__).parent / "os"
 
-_STAGE_PLACEHOLDER = """<!DOCTYPE html>
-<html><head><title>THE STAGE</title><style>
-html,body{height:100%;margin:0;background:#000;color:rgba(242,244,246,.3);
-display:flex;align-items:center;justify-content:center;
-font-family:"Helvetica Neue",sans-serif;font-size:12px;letter-spacing:.6em;
-text-transform:uppercase}</style></head>
-<body>THE STAGE&nbsp;&mdash;&nbsp;PHASE 5</body></html>"""
+# ── Globe weather grid — world cities sampled for heat/wind/rain modes ───────
+_WORLD_CITIES = [
+    # (lat, lon) — spread for even globe coverage
+    (51.5, -0.13), (48.9, 2.35), (40.4, -3.7), (41.9, 12.5), (52.5, 13.4),
+    (55.8, 37.6), (59.9, 30.3), (59.3, 18.1), (60.2, 24.9), (64.1, -21.9),
+    (38.7, -9.1), (37.9, 23.7), (41.0, 29.0), (50.1, 8.7), (47.5, 19.0),
+    (50.5, 30.5), (44.4, 26.1), (53.3, -6.3), (55.7, 12.6), (52.4, 4.9),
+    (40.7, -74.0), (34.1, -118.2), (41.9, -87.6), (29.8, -95.4), (33.4, -112.1),
+    (47.6, -122.3), (39.7, -105.0), (25.8, -80.2), (38.9, -77.0), (42.4, -71.1),
+    (45.5, -73.6), (43.7, -79.4), (49.3, -123.1), (19.4, -99.1), (23.1, -82.4),
+    (9.9, -84.1), (4.7, -74.1), (10.5, -66.9), (-0.2, -78.5), (-12.0, -77.0),
+    (-16.5, -68.2), (-23.6, -46.6), (-22.9, -43.2), (-34.6, -58.4), (-33.5, -70.7),
+    (-25.3, -57.6), (-34.9, -56.2), (30.0, 31.2), (33.6, -7.6), (36.8, 10.2),
+    (32.9, 13.2), (6.5, 3.4), (5.6, -0.2), (14.7, -17.5), (9.1, 38.7),
+    (-1.3, 36.8), (-6.8, 39.3), (-4.3, 15.3), (-8.8, 13.2), (-26.2, 28.0),
+    (-33.9, 18.4), (-29.9, 31.0), (-18.9, 47.5), (31.6, -8.0), (15.6, 32.5),
+    (35.7, 139.7), (34.7, 135.5), (37.6, 127.0), (39.9, 116.4), (31.2, 121.5),
+    (22.3, 114.2), (25.0, 121.6), (23.1, 113.3), (30.6, 104.1), (39.1, 117.2),
+    (28.6, 77.2), (19.1, 72.9), (13.1, 80.3), (22.6, 88.4), (12.9, 77.6),
+    (17.4, 78.5), (24.9, 67.0), (23.8, 90.4), (27.7, 85.3), (6.9, 79.9),
+    (13.8, 100.5), (21.0, 105.8), (10.8, 106.7), (11.6, 104.9), (16.8, 96.2),
+    (3.1, 101.7), (1.35, 103.8), (-6.2, 106.8), (-7.8, 110.4), (14.6, 121.0),
+    (25.3, 51.5), (24.5, 54.4), (25.2, 55.3), (21.4, 39.8), (24.7, 46.7),
+    (33.3, 44.4), (35.7, 51.4), (31.8, 35.2), (33.9, 35.5), (36.2, 37.2),
+    (40.2, 44.5), (41.7, 44.8), (43.2, 76.9), (41.3, 69.2), (38.6, 68.8),
+    (47.9, 106.9), (48.0, 66.9), (55.0, 73.4), (56.0, 92.9), (62.0, 129.7),
+    (43.1, 131.9), (53.0, 158.7), (64.7, 177.5), (-33.9, 151.2), (-37.8, 145.0),
+    (-27.5, 153.0), (-31.9, 115.9), (-35.3, 149.1), (-41.3, 174.8), (-36.8, 174.8),
+    (-17.7, 168.3), (-9.4, 147.2), (21.3, -157.9), (61.2, -149.9), (64.8, -147.7),
+    (78.2, 15.6), (-54.8, -68.3), (-77.8, 166.7), (72.8, -56.1), (81.7, -16.7),
+]
+_weather_cache = {"ts": 0.0, "cities": []}
+_WEATHER_TTL = 30 * 60
+
 
 
 def register_os(app: FastAPI, broadcast):
@@ -42,7 +70,7 @@ def register_os(app: FastAPI, broadcast):
 
     @app.get("/stage", response_class=HTMLResponse)
     async def stage_page():
-        return HTMLResponse(_STAGE_PLACEHOLDER)
+        return FileResponse(_OS_DIR / "stage.html")
 
     # Jarvis drives the UI: orchestrator [ACTION:os:cmd|arg] → bus → browser
     bus.subscribe(
@@ -83,6 +111,41 @@ def register_os(app: FastAPI, broadcast):
     async def os_budget():
         from core.governor import summary
         return summary()
+
+    @app.get("/api/globe/weather")
+    async def globe_weather():
+        """World-city weather grid for the globe's heat/wind/rain modes.
+        One batched Open-Meteo call, cached 30 minutes."""
+        now = time.time()
+        if now - _weather_cache["ts"] < _WEATHER_TTL and _weather_cache["cities"]:
+            return {"cities": _weather_cache["cities"], "cached": True}
+        lats = ",".join(str(c[0]) for c in _WORLD_CITIES)
+        lons = ",".join(str(c[1]) for c in _WORLD_CITIES)
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": lats, "longitude": lons,
+                        "current": "temperature_2m,wind_speed_10m,precipitation",
+                    },
+                )
+                data = r.json()
+        except Exception as e:
+            log.warning(f"globe weather fetch failed: {e}")
+            return {"cities": _weather_cache["cities"], "error": str(e)}
+        results = data if isinstance(data, list) else [data]
+        cities = []
+        for (lat, lon), res in zip(_WORLD_CITIES, results):
+            cur = res.get("current", {}) if isinstance(res, dict) else {}
+            cities.append({
+                "lat": lat, "lon": lon,
+                "t": cur.get("temperature_2m", 0),
+                "w": cur.get("wind_speed_10m", 0),
+                "p": cur.get("precipitation", 0),
+            })
+        _weather_cache.update(ts=now, cities=cities)
+        return {"cities": cities, "cached": False}
 
     @app.post("/api/os/camera")
     async def os_camera(body: dict):

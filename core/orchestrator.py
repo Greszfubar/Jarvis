@@ -56,6 +56,10 @@ Actions you can trigger by including them in your response:
   Use this whenever the user mentions: exam dates, important deadlines, goals, key personal facts,
   people they mention, or anything they want remembered long-term.
 - To show a banner on the JARVIS OS screen: [ACTION:os:banner|SHORT MESSAGE]
+- To control the OS globe (use whenever the user asks about world weather or places):
+  [ACTION:os:globe|heat] / [ACTION:os:globe|wind] / [ACTION:os:globe|rain] / [ACTION:os:globe|clear]
+  [ACTION:os:fly|<lat>,<lon>] — glide the globe to a place, e.g. Tenerife: [ACTION:os:fly|28.3,-16.6]
+  Combine them: "show me the heat over Spain" → [ACTION:os:globe|heat][ACTION:os:fly|40.4,-3.7]
 - To delegate to a specialist agent: [ACTION:agent:vision|command text]
   Replace 'vision' with: vision / ultron / friday / gresz
   Example: [ACTION:agent:vision|add a plan called Revision Week due June 18]

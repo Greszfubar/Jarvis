@@ -26,8 +26,9 @@ _PORT = 8765
 _OS_MODE = os.environ.get("JARVIS_OS", "").lower() in ("1", "true", "yes")
 _URL  = f"http://{_HOST}:{_PORT}" + ("/os" if _OS_MODE else "")
 
-# The window handle — set in open_window(), used in _boot()
+# The window handles — set in open_window(), used in _boot()
 _win: webview.Window = None
+_stage_win: webview.Window = None
 
 
 def _wait_for_server(timeout: float = 15.0) -> bool:
@@ -60,6 +61,8 @@ def _boot(start_async_engine):
         log.info("Server ready — loading app window")
         if _win:
             _win.load_url(_URL)
+        if _stage_win:
+            _stage_win.load_url(f"http://{_HOST}:{_PORT}/stage")
     else:
         log.error("Server did not start in time — window will show error page")
 
@@ -85,6 +88,26 @@ def open_window(start_async_engine):
         fullscreen       = _OS_MODE,      # MK II shell owns the whole screen
         js_api           = JarvisAPI(),   # exposes window.pywebview.api to JS
     )
+
+    # OS mode + a second display → THE STAGE gets its own fullscreen window
+    global _stage_win
+    if _OS_MODE:
+        try:
+            screens = webview.screens
+            if len(screens) > 1:
+                _stage_win = webview.create_window(
+                    title            = "THE STAGE",
+                    url              = "data:text/html,<html style='background:%23000000'></html>",
+                    background_color = "#000000",
+                    text_select      = False,
+                    fullscreen       = True,
+                    screen           = screens[1],
+                )
+                log.info(f"STAGE window created on display 2 of {len(screens)}")
+            else:
+                log.info("One display detected — STAGE stays at /stage in a browser")
+        except Exception as e:
+            log.warning(f"STAGE window setup failed (continuing single-screen): {e}")
 
     # Pass start_async_engine as the func so webview calls it in a thread
     webview.start(

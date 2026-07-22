@@ -78,8 +78,18 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg) } }
 
 /* ── Dashboard ──────────────────────────────────────────────────────────── */
-#globe-slot { width: min(58vmin, 720px); }
-#globe-placeholder { width: 100%; height: auto; display: block; }
+#globe-slot { width: min(64vmin, 780px); aspect-ratio: 1; }
+
+.globe-label {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  text-align: center; cursor: pointer;
+  transition: opacity .25s linear;
+  text-shadow: 0 0 8px #000;
+  will-change: transform;
+}
+.globe-label .l0 { font-size: 11px; letter-spacing: 0.22em; color: var(--white); text-transform: uppercase; }
+.globe-label .ln { font-size: 9px; letter-spacing: 0.18em; color: var(--dim); text-transform: uppercase; }
 
 #footnote {
   position: absolute; bottom: 12vh; left: 50%; transform: translateX(-50%);
