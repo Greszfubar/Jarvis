@@ -277,7 +277,11 @@ class BrowserListener:
             return
         log.debug(f"[Standby] Heard: '{text}'")
 
-        if LAUNCH_PHRASE in text.lower():
+        # Whisper adds punctuation ("Wake up, Jarvis.") — strip it before matching
+        normalized = re.sub(r"[^a-z0-9 ]+", " ", text.lower())
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        if LAUNCH_PHRASE in normalized:
             log.info("Launch phrase confirmed — activating JARVIS!")
             await self._notify_ui("launching", {})
             self.activate()
