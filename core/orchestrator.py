@@ -53,6 +53,7 @@ Actions you can trigger by including them in your response:
   Example: [ACTION:save_to_hardrive:goals|Biology Exam|Biology IGCSE exam on 12 May 2026]
   Use this whenever the user mentions: exam dates, important deadlines, goals, key personal facts,
   people they mention, or anything they want remembered long-term.
+- To show a banner on the JARVIS OS screen: [ACTION:os:banner|SHORT MESSAGE]
 - To delegate to a specialist agent: [ACTION:agent:vision|command text]
   Replace 'vision' with: vision / ultron / friday / gresz
   Example: [ACTION:agent:vision|add a plan called Revision Week due June 18]
@@ -217,6 +218,13 @@ class Orchestrator:
             msg = parts[1] if len(parts) > 1 else ""
             script = f'display notification "{msg}" with title "{title}"'
             await asyncio.to_thread(sp.run, ["osascript", "-e", script], timeout=5)
+        elif action_type == "os":
+            # Format: command|arg — drives the JARVIS OS screen via the bus
+            parts = value.split("|", 1)
+            await bus.publish("os.command", {
+                "command": parts[0].strip().lower(),
+                "arg": parts[1].strip() if len(parts) > 1 else "",
+            })
         elif action_type == "agent":
             # Format: agent_name|command text
             # Delegate to a Layer 2 specialist agent and surface its reply

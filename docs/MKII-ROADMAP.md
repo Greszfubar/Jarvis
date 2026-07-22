@@ -3,7 +3,7 @@
 > Build order for `MKII-PRD.md`. Each phase ends with something Evan can stand in
 > front of and feel. Check boxes as tasks complete; keep the status line current.
 
-**Status: Phase 1 — not started**
+**Status: Phase 1 built ✓ (browser-verified 2026-07-22; live clap+voice run pending) — Phase 2 next**
 
 ---
 
@@ -12,14 +12,16 @@
 Goal: clap twice → cinematic boot → dotted black dashboard with waveform and
 controls, talking to the real MK I brain. Keyboard still allowed as fallback.
 
-- [ ] 1.1 `ui/os/` SPA skeleton served at `/os`: dots background, base styles, scene manager
-- [ ] 1.2 Full-screen frameless kiosk window on the main display pointed at `/os` (pywebview), Dock/menu bar hidden
-- [ ] 1.3 `/ws/os` WebSocket endpoint bridging `core.bus` ⇄ browser events
-- [ ] 1.4 Boot cinematic: Jarvis circle + rings → clap-twice trigger (existing listener) → expand/collapse → "Directed by Gresz Industries" → "JARVIS OS Launching" → dashboard fade-in
-- [ ] 1.5 Jarvis waveform component: reacts to mic input, glows blue on speech (listener/speaker publish amplitude frames)
-- [ ] 1.6 In-OS voice mode: no wake word — utterances stream to the orchestrator; replies spoken + shown
-- [ ] 1.7 Bottom control bar: mic toggle, camera toggle, settings cog, shutdown X (with confirm)
-- [ ] 1.8 `[ACTION:os:...]` orchestrator tag so Jarvis can drive the UI by talking
+- [x] 1.1 `ui/os/` SPA skeleton served at `/os`: dots background, base styles, scene manager
+- [x] 1.2 Full-screen kiosk window pointed at `/os` — run with `JARVIS_OS=1 python main.py`
+- [x] 1.3 Bus ⇄ browser events — simplified: reused the existing `/ws` (chat + voice events) and `/ws/audio` (mic PCM) channels instead of a new `/ws/os`; `os.command` bus topic broadcasts as kind `os`
+- [x] 1.4 Boot cinematic: Jarvis circle + rings → clap-twice trigger (existing listener) → expand/collapse → "Directed by Gresz Industries" → "JARVIS OS Launching" → dashboard fade-in
+- [x] 1.5 Jarvis waveform: local mic RMS (client-side, no server round-trip), blue synthetic wave on `speaking` events
+- [x] 1.6 In-OS voice mode: `set_always_on` on BrowserListener (≥3 words, no wake word), enabled via `/api/os/voice` when the dashboard loads
+- [x] 1.7 Bottom control bar: mic toggle (wired to `/api/mute`), camera stub (Phase 2), settings panel, shutdown X with confirm (`/api/os/shutdown`; machine shutdown only if `JARVIS_SHUTDOWN_MACHINE=1`)
+- [x] 1.8 `[ACTION:os:banner|…]` orchestrator tag → bus → OS banner; the `os` action channel is the hook for Phase 3 globe commands
+
+*Verified in browser via `/os?sim=1` (keys: c=clap l=launch s=speaking d=done r=banner). Full clap→voice loop needs a live `python main.py` run — Whisper + mic aren't available in the dev preview.*
 
 ## Phase 2 — Hands *(no type, no click)*
 

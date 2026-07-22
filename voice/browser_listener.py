@@ -97,6 +97,9 @@ class BrowserListener:
         # Extra wake words — agent names added when a Layer-2 window is open
         self._extra_wake_words:     set   = set()
 
+        # JARVIS OS mode — every utterance is a command, no wake word needed
+        self._always_on:            bool  = False
+
         # UI push callback
         self._notify: Optional[Callable] = None
 
@@ -162,6 +165,14 @@ class BrowserListener:
             log.info(f"Wake words: jarvis + {extra}")
         else:
             log.info("Wake words: jarvis only")
+
+    def set_always_on(self, on: bool):
+        """
+        JARVIS OS voice mode: treat every utterance (≥3 words, post-hallucination
+        filter) as a command — no wake word, no conversation window required.
+        """
+        self._always_on = on
+        log.info(f"Always-on voice mode: {'ON' if on else 'OFF'}")
 
     def activate(self):
         """Called when launch phrase is heard — exit standby mode."""
@@ -321,6 +332,16 @@ class BrowserListener:
             # Do NOT re-extend the window here — only extend when JARVIS actually responds
             # (set_muted(False) after TTS playback does the extension).
             log.info(f"Conversational reply ({word_count}w): '{text}'")
+            await self._notify_ui("got_command", {"text": text})
+            if self._on_command:
+                self._processing = True
+                command = self._extract_command(text) or text
+                self._on_command(command)
+            return
+
+        # ── JARVIS OS always-on mode — no wake word needed ────────────────────
+        if self._always_on and word_count >= 3:
+            log.info(f"Always-on command ({word_count}w): '{text}'")
             await self._notify_ui("got_command", {"text": text})
             if self._on_command:
                 self._processing = True

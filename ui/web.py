@@ -79,6 +79,11 @@ def _kv_set(name: str, key: str, value):
     db.close()
 
 
+# ── JARVIS OS (MK II) pages + endpoints ──────────────────────────────────────
+from ui.os_routes import register_os
+register_os(app, lambda kind, payload: _broadcast(kind, payload))
+
+
 @app.on_event("startup")
 async def _setup_bus():
     bus.subscribe("jarvis.alert",        lambda p: asyncio.create_task(_broadcast("alert",     p)))
@@ -326,7 +331,11 @@ async def api_reminders():
         return {"reminders": [], "error": str(e)}
 
 
-TOOLS_PASSWORD = "R3d8Lu3Gr33N8Lu3"
+# Set JARVIS_TOOLS_PASSWORD in config/.env — the tools panel is disabled without it.
+# (The old hardcoded password is burned: it shipped in a public repo.)
+def _tools_password() -> str:
+    from core.config import env as _env
+    return _env("JARVIS_TOOLS_PASSWORD", "")
 
 TOOL_CATALOG = [
     {"key": "ANTHROPIC_API_KEY",    "name": "Claude AI",         "desc": "Core AI engine (Anthropic)",          "required": True,  "docs": "https://console.anthropic.com"},
@@ -374,15 +383,17 @@ def _write_env_key(key: str, value: str):
 
 @app.get("/api/tools")
 async def api_tools(password: str = ""):
-    if password != TOOLS_PASSWORD:
+    expected = _tools_password()
+    if not expected or password != expected:
         return {"error": "unauthorized"}
     env_vals = _read_env_file()
     tools = []
     for t in TOOL_CATALOG:
         val = env_vals.get(t["key"], "")
-        # Mask API keys — show last 4 chars only
-        masked = ("•" * 8 + val[-4:]) if val and len(val) > 4 and "KEY" in t["key"].upper() else val
-        tools.append({**t, "value": val, "masked": masked, "configured": bool(val)})
+        # Never return raw secrets — masked preview only (last 4 chars)
+        sensitive = any(w in t["key"].upper() for w in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
+        masked = ("•" * 8 + val[-4:]) if val and len(val) > 4 and sensitive else val
+        tools.append({**t, "value": "" if sensitive else val, "masked": masked, "configured": bool(val)})
     return {"tools": tools}
 
 class ToolUpdate(BaseModel):
@@ -392,7 +403,8 @@ class ToolUpdate(BaseModel):
 
 @app.post("/api/tools")
 async def api_tools_update(body: ToolUpdate):
-    if body.password != TOOLS_PASSWORD:
+    expected = _tools_password()
+    if not expected or body.password != expected:
         return {"error": "unauthorized"}
     _write_env_key(body.key, body.value)
     return {"status": "saved"}

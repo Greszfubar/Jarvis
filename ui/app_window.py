@@ -10,6 +10,7 @@ Lifecycle:
   3. Main thread keeps the WKWebView alive until the user closes it.
 """
 import logging
+import os
 import socket
 import threading
 import time
@@ -20,7 +21,10 @@ log = logging.getLogger("jarvis.appwindow")
 
 _HOST = "127.0.0.1"
 _PORT = 8765
-_URL  = f"http://{_HOST}:{_PORT}"
+
+# JARVIS_OS=1 → MK II shell: fullscreen kiosk at /os instead of the MK I dashboard
+_OS_MODE = os.environ.get("JARVIS_OS", "").lower() in ("1", "true", "yes")
+_URL  = f"http://{_HOST}:{_PORT}" + ("/os" if _OS_MODE else "")
 
 # The window handle — set in open_window(), used in _boot()
 _win: webview.Window = None
@@ -69,14 +73,16 @@ def open_window(start_async_engine):
     global _win
     from ui.sub_apps import JarvisAPI
 
+    bg = "#000000" if _OS_MODE else "#010d18"
     _win = webview.create_window(
         title            = "JARVIS",
-        url              = "data:text/html,<html style='background:%23010d18'></html>",
+        url              = f"data:text/html,<html style='background:%23{bg[1:]}'></html>",
         width            = 1400,
         height           = 900,
         min_size         = (1100, 700),
-        background_color = "#010d18",
+        background_color = bg,
         text_select      = False,
+        fullscreen       = _OS_MODE,      # MK II shell owns the whole screen
         js_api           = JarvisAPI(),   # exposes window.pywebview.api to JS
     )
 

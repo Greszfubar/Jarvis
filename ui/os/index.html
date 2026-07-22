@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JARVIS OS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/os/static/os.css">
+</head>
+<body>
+  <!-- Dots starfield — always present, every scene sits on top -->
+  <canvas id="dots"></canvas>
+
+  <!-- ── BOOT LAYER ─────────────────────────────────────────────────────── -->
+  <div id="boot" class="scene visible">
+    <div id="core-wrap">
+      <canvas id="core" width="640" height="640"></canvas>
+    </div>
+    <div id="boot-hint">clap twice</div>
+  </div>
+
+  <!-- Title cards -->
+  <div id="card-gresz" class="scene card">
+    <div class="card-text">DIRECTED BY GRESZ INDUSTRIES</div>
+    <div class="loader"><span></span><span></span><span></span></div>
+  </div>
+  <div id="card-launch" class="scene card">
+    <div class="card-text">JARVIS OS LAUNCHING</div>
+    <div class="loader"><span></span><span></span><span></span></div>
+  </div>
+
+  <!-- ── DASHBOARD LAYER ────────────────────────────────────────────────── -->
+  <div id="dashboard" class="scene">
+    <!-- Globe placeholder — Phase 3 replaces this with the three.js globe -->
+    <div id="globe-slot">
+      <canvas id="globe-placeholder" width="720" height="720"></canvas>
+    </div>
+    <div id="footnote">GRESZ INDUSTRIES</div>
+
+    <!-- Jarvis waveform — corner indicator -->
+    <canvas id="waveform" width="360" height="96"></canvas>
+
+    <!-- Subtitles: what Jarvis hears / says -->
+    <div id="subtitle-heard"></div>
+    <div id="subtitle"></div>
+
+    <!-- OS banner (driven by [ACTION:os:banner|…]) -->
+    <div id="os-banner"></div>
+
+    <!-- Bottom control bar -->
+    <div id="controls">
+      <button id="btn-mic" class="ctl active" title="Microphone">
+        <svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none"/></svg>
+      </button>
+      <button id="btn-cam" class="ctl" title="Camera (hands — Phase 2)">
+        <svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="2" fill="none"/><path d="M16 10.5 21 8v8l-5-2.5" fill="none"/></svg>
+      </button>
+      <button id="btn-settings" class="ctl" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" fill="none"/></svg>
+      </button>
+      <button id="btn-power" class="ctl danger" title="Shut down JARVIS OS">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── OVERLAYS ───────────────────────────────────────────────────────── -->
+  <div id="settings-panel" class="overlay">
+    <div class="panel">
+      <div class="panel-title">SETTINGS</div>
+      <div class="setting-row"><span>Voice — always listening</span><span id="set-voice" class="pill">ON</span></div>
+      <div class="setting-row"><span>Hand tracking</span><span class="pill dim">PHASE 2</span></div>
+      <div class="setting-row"><span>Globe</span><span class="pill dim">PHASE 3</span></div>
+      <div class="setting-row"><span>Build</span><span class="pill">MK II — SHELL</span></div>
+      <div class="panel-hint">pinch anywhere outside to close</div>
+    </div>
+  </div>
+
+  <div id="confirm-power" class="overlay">
+    <div class="panel">
+      <div class="panel-title">SHUT DOWN JARVIS OS?</div>
+      <div class="confirm-row">
+        <button id="power-yes" class="confirm danger">SHUT DOWN</button>
+        <button id="power-no" class="confirm">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard fallback command bar (press /) -->
+  <div id="cmdbar"><input id="cmd" type="text" placeholder="type to Jarvis — enter to send, esc to close" autocomplete="off"></div>
+
+  <script type="module" src="/os/static/js/main.js"></script>
+</body>
+</html>
