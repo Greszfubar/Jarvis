@@ -1,0 +1,70 @@
+jarvis:
+  name: JARVIS
+  version: "1.0"
+  model: claude-sonnet-4-6
+
+voice:
+  enabled: true
+  wake_phrase: "jarvis"         # detected anywhere in utterance ("hey jarvis", "jarvis," etc.)
+  speech_threshold: 0.012       # RMS energy threshold — raise if too sensitive in noisy rooms
+  silence_secs: 1.2             # seconds of silence to end an utterance
+  tts_engine: macos             # macos | elevenlabs
+  macos_voice: "Samantha"       # macOS voice name — run: say -v ? | grep en_ to list voices
+  speech_rate: 185              # words per minute for 'say'
+
+agents:
+  news:
+    enabled: true
+    refresh_interval_min: 90
+    max_articles: 12
+    sources:
+      - https://feeds.bbci.co.uk/news/rss.xml
+      - https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+      - https://feeds.reuters.com/reuters/topNews
+      - https://techcrunch.com/feed/
+    categories:
+      - technology
+      - business
+      - science
+
+  weather:
+    enabled: true
+    refresh_interval_min: 30
+
+  calendar:
+    enabled: true
+    refresh_interval_min: 15
+    lookahead_hours: 24
+
+  gmail:
+    enabled: true
+    refresh_interval_min: 10
+    max_unread_summary: 10
+    important_senders: []        # Add VIP emails here
+
+  desktop:
+    enabled: true
+    screenshot_on_query: true
+
+  tasks:
+    enabled: true
+    refresh_interval_min: 60
+
+briefing:
+  enabled: true
+  time: "08:00"
+  include:
+    - weather
+    - calendar
+    - news
+    - email
+    - tasks
+
+memory:
+  db_path: data/jarvis.db
+  chroma_path: data/chroma
+  max_short_term: 50            # messages kept in active context
+
+scheduler:
+  max_workers: 8
+  misfire_grace_sec: 30

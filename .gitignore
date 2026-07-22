@@ -1,0 +1,18 @@
+# ── Personal data — never commit (repo is public) ─────────────────────────────
+config/.env
+config/.env.save
+data/
+knowledge/
+life/
+logs/
+jarvis.pid
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store

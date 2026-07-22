@@ -1,0 +1,91 @@
+"""
+JARVIS native app window — pywebview wrapper.
+
+Lifecycle:
+  1. webview.start(func=_boot) is called on the main thread.
+  2. _boot() runs in a daemon thread:
+       - starts uvicorn (FastAPI) on localhost:8765
+       - waits until the server is accepting connections
+       - loads the URL into the already-created (but blank) window
+  3. Main thread keeps the WKWebView alive until the user closes it.
+"""
+import logging
+import socket
+import threading
+import time
+
+import webview
+
+log = logging.getLogger("jarvis.appwindow")
+
+_HOST = "127.0.0.1"
+_PORT = 8765
+_URL  = f"http://{_HOST}:{_PORT}"
+
+# The window handle — set in open_window(), used in _boot()
+_win: webview.Window = None
+
+
+def _wait_for_server(timeout: float = 15.0) -> bool:
+    """Poll until the FastAPI server is accepting TCP connections."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((_HOST, _PORT), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.15)
+    return False
+
+
+def _boot(start_async_engine):
+    """
+    Called by webview in a background thread right after the window is created.
+    Starts the FastAPI server and the async engine, then loads the URL.
+    """
+    # 1. Start the async engine (FastAPI + agents + scheduler + voice)
+    #    This is a blocking call that runs forever — launch in its own thread.
+    engine_thread = threading.Thread(
+        target=start_async_engine, daemon=True, name="async-main"
+    )
+    engine_thread.start()
+
+    # 2. Wait for the web server to be ready
+    log.info("Waiting for JARVIS web server…")
+    if _wait_for_server(timeout=20):
+        log.info("Server ready — loading app window")
+        if _win:
+            _win.load_url(_URL)
+    else:
+        log.error("Server did not start in time — window will show error page")
+
+
+def open_window(start_async_engine):
+    """
+    Create the native JARVIS window and start the app.
+    Blocks until the user closes the window.
+    Called from the main thread.
+    """
+    global _win
+    from ui.sub_apps import JarvisAPI
+
+    _win = webview.create_window(
+        title            = "JARVIS",
+        url              = "data:text/html,<html style='background:%23010d18'></html>",
+        width            = 1400,
+        height           = 900,
+        min_size         = (1100, 700),
+        background_color = "#010d18",
+        text_select      = False,
+        js_api           = JarvisAPI(),   # exposes window.pywebview.api to JS
+    )
+
+    # Pass start_async_engine as the func so webview calls it in a thread
+    webview.start(
+        func         = _boot,
+        args         = (start_async_engine,),
+        private_mode = False,        # allow localStorage / IndexedDB
+        debug        = False,
+    )
+    # webview.start() returns when the window is closed
+    log.info("JARVIS window closed — shutting down")
