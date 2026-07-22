@@ -171,6 +171,11 @@ html, body {
 }
 .pill.dim { color: var(--faint) }
 .panel-hint { margin-top: 30px; text-align: center; font-size: 9px; letter-spacing: .3em; color: var(--faint); text-transform: uppercase; }
+.perm-desc {
+  max-width: 440px; margin: -10px auto 30px; text-align: center;
+  font-size: 13px; font-weight: 300; letter-spacing: 0.08em; line-height: 1.7;
+  color: var(--white);
+}
 .confirm-row { display: flex; gap: 18px; justify-content: center; }
 .confirm {
   background: transparent; border: 1px solid var(--faint); border-radius: 2px;

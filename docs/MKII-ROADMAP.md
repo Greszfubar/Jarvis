@@ -18,7 +18,19 @@
 > - Voice stack upgrade path: Deepgram STT + Cartesia TTS + Sonnet streaming
 >   (current Whisper + `say`/ElevenLabs is the placeholder).
 
-**Status: Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — next: Phase-0 safety scaffolding from `MKII-DEV-PLAN.md`, then the Globe**
+**Status: Phase 0 built ✓ · Phase 1 live ✓ · Phase 2 built ✓ (real-hand tuning pending) — the Globe next**
+
+---
+
+## Phase 0 — Safety scaffolding *(from MKII-DEV-PLAN: built before any agent gets power)*
+
+- [x] 0.1 **The vault** (`core/vault.py`): secrets in the macOS Keychain, never plaintext. `env()` falls back to the vault for secret-shaped keys; real tokens migrated out of `config/.env` (2026-07-22)
+- [x] 0.2 **The budget governor** (`core/governor.py`): every orchestrator model call runs through the `claude` CLI's JSON output so real `total_cost_usd` lands in the `data/governor.db` ledger; monthly £5,000 ceiling + nightly cap (default £15), warn at 80%, refuse at 100% — caps via `JARVIS_BUDGET_MONTHLY_GBP` / `JARVIS_BUDGET_NIGHTLY_GBP`; `/api/os/budget` reports live spend
+- [x] 0.3 **The permission gate** (`core/permissions.py`): single chokepoint — gated actions publish a request, the OS shows an APPROVE/DENY overlay, spoken "yes"/"no" resolves it, 45 s timeout = deny. Destructive shell commands from `[ACTION:shell:…]` are gated; CVV/final-payment stay manual forever (not representable in the gate at all)
+- [x] 0.4 **The rollback spine** (`core/snapshots.py`): `guarded_change(label, fn)` = snapshot commit → apply → health check (compile + spine imports in a fresh interpreter) → auto-revert on failure → spoken report. Last-known-good tracked in `data/last_good_snapshot.json`. This is the precondition for building Patch
+- [x] 0.5 All four verified by test: vault round-trip, ledger + cap enforcement, voice/UI/timeout gate resolution, snapshot → broken change → auto-revert
+
+*Note: GitHub push of snapshots is deliberately manual for now — auto-push lands with Patch itself, gated.*
 
 ---
 

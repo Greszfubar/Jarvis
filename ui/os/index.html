@@ -91,6 +91,19 @@
     </div>
   </div>
 
+  <!-- Permission gate — spoken "yes"/"no" also resolves it -->
+  <div id="confirm-perm" class="overlay">
+    <div class="panel">
+      <div class="panel-title">PERMISSION REQUIRED</div>
+      <div id="perm-desc" class="perm-desc"></div>
+      <div class="confirm-row">
+        <button id="perm-yes" class="confirm">APPROVE</button>
+        <button id="perm-no" class="confirm danger">DENY</button>
+      </div>
+      <div class="panel-hint">or just say yes / no</div>
+    </div>
+  </div>
+
   <!-- Keyboard fallback command bar (press /) -->
   <div id="cmdbar"><input id="cmd" type="text" placeholder="type to Jarvis — enter to send, esc to close" autocomplete="off"></div>
 

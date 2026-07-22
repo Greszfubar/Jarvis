@@ -62,6 +62,28 @@ def register_os(app: FastAPI, broadcast):
         lambda p: asyncio.create_task(broadcast("hands_frame", p)),
     )
 
+    # Permission gate → OS overlay (+ resolution feedback)
+    bus.subscribe(
+        "permission.request",
+        lambda p: asyncio.create_task(broadcast("permission", p)),
+    )
+    bus.subscribe(
+        "permission.resolved",
+        lambda p: asyncio.create_task(broadcast("permission_resolved", p)),
+    )
+
+    @app.post("/api/os/permission")
+    async def os_permission(body: dict):
+        """Overlay buttons — approve/deny the pending permission request."""
+        from core.permissions import gate
+        ok = gate.resolve_ui(str(body.get("id", "")), bool(body.get("allow", False)))
+        return {"resolved": ok}
+
+    @app.get("/api/os/budget")
+    async def os_budget():
+        from core.governor import summary
+        return summary()
+
     @app.post("/api/os/camera")
     async def os_camera(body: dict):
         """Camera button — start/stop the hand-tracking service."""

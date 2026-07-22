@@ -18,8 +18,10 @@ from typing import Any, Optional
 
 from core.bus import bus
 from core.config import cfg, env
+from core.governor import check as budget_check, record as budget_record
 from core.memory import Memory
 from core.para_memory import append_to_daily, get_profile, get_rules, init_profile
+from core.permissions import gate, is_dangerous_shell
 
 log = logging.getLogger("jarvis.orchestrator")
 
@@ -128,6 +130,15 @@ class Orchestrator:
         return "\n".join(parts)
 
     async def process(self, user_input: str) -> str:
+        # A pending permission request consumes yes/no answers before the model
+        if gate.try_voice_answer(user_input):
+            return "Understood."
+
+        # Budget governor — every model call is accounted and capped
+        verdict = budget_check("orchestrator")
+        if not verdict.allowed:
+            return verdict.warning
+
         self._memory.add_message("user", user_input)
         append_to_daily("user", user_input)          # write to daily note
         system = self._build_system()
@@ -137,6 +148,8 @@ class Orchestrator:
             raw = "I didn't catch that. Could you repeat?"
 
         clean_response = await self._handle_actions(raw)
+        if verdict.warning:
+            clean_response = f"{clean_response} {verdict.warning}"
 
         self._memory.add_message("assistant", clean_response)
         append_to_daily("assistant", clean_response)  # write response to daily note
@@ -159,7 +172,7 @@ class Orchestrator:
             result = subprocess.run(
                 [CLAUDE_CMD, "-p", user_message,
                  "--system-prompt", system_prompt,
-                 "--output-format", "text"],
+                 "--output-format", "json"],
                 capture_output=True,
                 text=True,
                 timeout=90,
@@ -175,7 +188,18 @@ class Orchestrator:
                             "Run 'claude' in a terminal and complete the login, "
                             "then I'll be back at full capacity.")
                 return "I encountered an issue — check logs."
-            return result.stdout.strip()
+            # JSON output carries the response text plus real cost accounting
+            try:
+                payload = json.loads(result.stdout)
+                text = (payload.get("result") or "").strip()
+                cost = float(payload.get("total_cost_usd") or 0)
+                if cost:
+                    budget_record("orchestrator", cost,
+                                  model=payload.get("model", ""),
+                                  note=user_message[:120])
+                return text
+            except (json.JSONDecodeError, TypeError):
+                return result.stdout.strip()
         except subprocess.TimeoutExpired:
             return "Request timed out. I'm still here — try a simpler query."
         except FileNotFoundError:
@@ -212,6 +236,14 @@ class Orchestrator:
             await asyncio.to_thread(sp.Popen, ["open", value])
             log.info(f"Opened URL: {value}")
         elif action_type == "shell":
+            # Permission gate: destructive commands need Evan's explicit yes
+            if is_dangerous_shell(value):
+                await bus.publish("jarvis.response", {
+                    "text": f"Permission needed to run: {value}"})
+                allowed = await gate.request("shell_danger", f"Run shell command: {value}")
+                if not allowed:
+                    log.info(f"Shell command DENIED by gate: {value}")
+                    return
             result = await asyncio.to_thread(
                 sp.run, value, shell=True, capture_output=True, text=True, timeout=10
             )

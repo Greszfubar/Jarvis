@@ -31,6 +31,20 @@ export class Hud {
     document.getElementById("btn-settings").addEventListener("click", () => settings.classList.add("on"));
     settings.addEventListener("click", (e) => { if (e.target === settings) settings.classList.remove("on"); });
 
+    // Permission gate overlay
+    this._permId = null;
+    const perm = document.getElementById("confirm-perm");
+    const answer = (allow) => {
+      if (this._permId === null) return;
+      fetch("/api/os/permission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: this._permId, allow }),
+      }).catch(() => {});
+    };
+    document.getElementById("perm-yes").addEventListener("click", () => answer(true));
+    document.getElementById("perm-no").addEventListener("click", () => answer(false));
+
     // Power
     const confirm = document.getElementById("confirm-power");
     document.getElementById("btn-power").addEventListener("click", () => confirm.classList.add("on"));
@@ -62,6 +76,17 @@ export class Hud {
       }
       e.stopPropagation();
     });
+  }
+
+  showPermission(d) {
+    this._permId = d.id;
+    document.getElementById("perm-desc").textContent = d.description || d.label || "";
+    document.getElementById("confirm-perm").classList.add("on");
+  }
+
+  resolvePermission() {
+    this._permId = null;
+    document.getElementById("confirm-perm").classList.remove("on");
   }
 
   showHeard(text) {

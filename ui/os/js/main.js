@@ -111,6 +111,13 @@ const link = new EventLink((d) => {
     case "hands_frame":
       hands.showFrame(d.jpg);
       break;
+    case "permission":
+      hud.showPermission(d);
+      break;
+    case "permission_resolved":
+      hud.resolvePermission();
+      hud.showBanner(d.allowed ? "APPROVED" : "DENIED", 2200);
+      break;
   }
 });
 

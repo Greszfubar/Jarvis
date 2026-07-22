@@ -16,4 +16,14 @@ cfg: dict = _raw.get("jarvis", {}) | {k: v for k, v in _raw.items() if k != "jar
 
 
 def env(key: str, default: str = "") -> str:
-    return os.getenv(key, default)
+    """Config lookup: environment (.env included) first, then the Keychain
+    vault for secret-shaped keys, then the default."""
+    val = os.getenv(key, "")
+    if val:
+        return val
+    from core.vault import is_secret_key, vault_get
+    if is_secret_key(key):
+        vaulted = vault_get(key)
+        if vaulted:
+            return vaulted
+    return default
