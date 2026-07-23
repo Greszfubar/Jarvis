@@ -29,6 +29,38 @@ const LABEL_CITIES = [
   { name: "CAPE TOWN", lat: -33.9, lon: 18.4 },{ name: "REYKJAVÍK", lat: 64.1, lon: -21.9 },
 ];
 
+// Heat colour ramp: deep blue → blue → violet → purple → magenta → red → white-hot
+const HEAT_STOPS = [
+  [-30, 0.06, 0.12, 0.50],
+  [-15, 0.12, 0.30, 0.85],
+  [  0, 0.30, 0.45, 0.95],
+  [ 10, 0.50, 0.35, 0.92],
+  [ 18, 0.68, 0.28, 0.88],
+  [ 25, 0.90, 0.22, 0.58],
+  [ 31, 1.00, 0.22, 0.18],
+  [ 38, 1.00, 0.60, 0.45],
+  [ 45, 1.00, 1.00, 1.00],
+];
+
+function heatColor(t, out) {
+  if (t <= HEAT_STOPS[0][0]) {
+    const s = HEAT_STOPS[0];
+    return out.setRGB(s[1], s[2], s[3]);
+  }
+  for (let i = 1; i < HEAT_STOPS.length; i++) {
+    const a = HEAT_STOPS[i - 1], b = HEAT_STOPS[i];
+    if (t <= b[0]) {
+      const k = (t - a[0]) / (b[0] - a[0]);
+      return out.setRGB(
+        a[1] + (b[1] - a[1]) * k,
+        a[2] + (b[2] - a[2]) * k,
+        a[3] + (b[3] - a[3]) * k,
+      );
+    }
+  }
+  return out.setRGB(1, 1, 1);
+}
+
 function toXYZ(lat, lon, r = R) {
   const la = THREE.MathUtils.degToRad(lat), lo = THREE.MathUtils.degToRad(lon);
   return new THREE.Vector3(
@@ -246,8 +278,7 @@ export class Globe {
         wSum += w; tSum += w * ct.t;
       }
       const t = tSum / wSum;
-      const k = Math.max(0, Math.min(1, (t + 25) / 70));   // -25..45°C
-      c.setHSL(0.66 - 0.66 * k, 0.85, 0.3 + 0.35 * k);     // blue → red
+      heatColor(t, c);                                     // blue→purple→red→white
       col.array[i * 3] = c.r; col.array[i * 3 + 1] = c.g; col.array[i * 3 + 2] = c.b;
     });
     col.needsUpdate = true;
