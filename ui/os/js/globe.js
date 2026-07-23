@@ -184,8 +184,9 @@ export class Globe {
         home.temp = w.temp;
         if (w.lat && w.lon) { home.lat = w.lat; home.lon = w.lon; }
         else {
-          const known = { petersfield: [51.0, -0.94], madrid: [40.42, -3.70], london: [51.5, -0.12] };
-          const k = known[String(w.city).toLowerCase()];
+          const known = { alcobendas: [40.55, -3.64], madrid: [40.42, -3.70],
+                          petersfield: [51.0, -0.94], london: [51.5, -0.12] };
+          const k = known[String(w.city).toLowerCase().split(",")[0].trim()];
           if (k) { home.lat = k[0]; home.lon = k[1]; }
         }
       }
@@ -673,12 +674,12 @@ export class Globe {
     const now = performance.now();
     const held = now < this._holdUntil;
 
-    // Focus hold expired with a mode still on → revert to the default globe:
-    // clear markers/colours, ease back, resume the natural spin.
+    // Focus hold expired → resume the natural idle spin, easing back to the
+    // default framing. The weather view (heat/wind/rain) STAYS on — it only
+    // clears when Jarvis or Evan says so ([ACTION:os:globe|clear]).
     // (Runs before the size guard — behaviour must not depend on rendering.)
     if (!held && this._holdUntil !== 0) {
       this._holdUntil = 0;
-      if (this.mode !== "clear") this.setMode("clear");
       this._fly = { t: 0, dur: 2.0,
         fromX: this.group.rotation.x, toX: 0,
         fromY: this.group.rotation.y, toY: this.group.rotation.y,

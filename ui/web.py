@@ -658,7 +658,7 @@ def _bootstrap_hardrive() -> list:
     name = env("USER_NAME", "")
     if name:
         _add("info", "Name", name, ["identity", "personal"])
-    _add("info", "Home", "Petersfield, Hampshire, UK", ["location", "home"])
+    _add("info", "Home", "Alcobendas, Madrid, Spain", ["location", "home"])
 
     # ── Parse tasks_pending for meaningful deadlines / goals ──────────────────
     try:
