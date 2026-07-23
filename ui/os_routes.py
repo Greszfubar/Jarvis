@@ -133,7 +133,7 @@ def register_os(app: FastAPI, broadcast):
                     params={
                         "latitude": lats, "longitude": lons,
                         "current": "temperature_2m,wind_speed_10m,wind_direction_10m,"
-                                   "precipitation,cloud_cover",
+                                   "precipitation,cloud_cover,weather_code",
                     },
                 )
                 data = r.json()
@@ -151,6 +151,7 @@ def register_os(app: FastAPI, broadcast):
                 "wd": cur.get("wind_direction_10m", 0),
                 "p": cur.get("precipitation", 0),
                 "c": cur.get("cloud_cover", 0),
+                "wc": cur.get("weather_code", 0),
             })
         _weather_cache.update(ts=now, cities=cities)
         return {"cities": cities, "cached": False}

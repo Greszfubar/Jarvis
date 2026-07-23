@@ -449,17 +449,36 @@ export class Globe {
     return this._softTex;
   }
 
+  // WMO weather codes that mean "it is raining/showering/storming"
+  _isRaining(ct) {
+    const wc = ct.wc || 0;
+    return (ct.p || 0) > 0.05
+      || (wc >= 51 && wc <= 67)          // drizzle + rain
+      || (wc >= 80 && wc <= 82)          // showers
+      || (wc >= 95);                     // thunderstorms
+  }
+
+  _rainIntensity(ct) {
+    const wc = ct.wc || 0;
+    let k = Math.min(1, (ct.p || 0) / 4);
+    if (wc >= 61 && wc <= 67) k = Math.max(k, 0.5);
+    if (wc >= 80) k = Math.max(k, 0.7);
+    if (wc >= 95) k = 1;
+    return Math.max(0.3, k);
+  }
+
   async _buildRain(cities) {
-    // Clouds: puffs where cover is high, grey-white by coverage
+    // Clouds: dense grey-white puffs — the cloudier, the thicker
     const puffs = [];
     for (const ct of cities) {
-      if ((ct.c || 0) < 35) continue;
-      const n = ct.c > 75 ? 4 : 2;
+      const cover = ct.c || 0;
+      if (cover < 25) continue;
+      const n = 2 + Math.round((cover / 100) * 5);      // up to 7 puffs
       for (let i = 0; i < n; i++) {
         puffs.push({
-          lat: ct.lat + (Math.random() - 0.5) * 7,
-          lon: ct.lon + (Math.random() - 0.5) * 9,
-          k: ct.c / 100,
+          lat: ct.lat + (Math.random() - 0.5) * 8,
+          lon: ct.lon + (Math.random() - 0.5) * 10,
+          k: Math.pow(cover / 100, 1.1),
         });
       }
     }
@@ -468,65 +487,84 @@ export class Globe {
     puffs.forEach((p, i) => {
       const v = toXYZ(p.lat, p.lon, R + 5);
       cpos[i * 3] = v.x; cpos[i * 3 + 1] = v.y; cpos[i * 3 + 2] = v.z;
-      const b = 0.35 + 0.5 * p.k;
+      const b = 0.4 + 0.6 * p.k;
       ccol[i * 3] = b; ccol[i * 3 + 1] = b; ccol[i * 3 + 2] = b;
     });
     const cgeo = new THREE.BufferGeometry();
     cgeo.setAttribute("position", new THREE.BufferAttribute(cpos, 3));
     cgeo.setAttribute("color", new THREE.BufferAttribute(ccol, 3));
     this._clouds = new THREE.Points(cgeo, new THREE.PointsMaterial({
-      map: this._softTexture(), vertexColors: true, size: 16,
-      sizeAttenuation: true, transparent: true, opacity: 0.55,
+      map: this._softTexture(), vertexColors: true, size: 18,
+      sizeAttenuation: true, transparent: true, opacity: 0.75,
       depthWrite: false,
     }));
     this.group.add(this._clouds);
 
-    // Rain: falling droplets under wet cities
+    // Rain: falling STREAKS under every raining city (weather-code aware,
+    // so drizzle counts even when instantaneous precipitation reads zero)
     const drops = [];
     for (const ct of cities) {
-      if ((ct.p || 0) < 0.25) continue;
-      const n = Math.min(14, 4 + Math.round(ct.p * 3));
+      if (!this._isRaining(ct)) continue;
+      const inten = this._rainIntensity(ct);
+      const n = Math.round(8 + inten * 16);             // 8..24 streaks
       for (let i = 0; i < n; i++) {
         drops.push({
-          lat: ct.lat + (Math.random() - 0.5) * 5,
-          lon: ct.lon + (Math.random() - 0.5) * 7,
-          phase: Math.random(), spd: 0.5 + Math.random() * 0.5,
+          lat: ct.lat + (Math.random() - 0.5) * 6,
+          lon: ct.lon + (Math.random() - 0.5) * 8,
+          phase: Math.random(), spd: 0.6 + Math.random() * 0.7,
+          inten,
         });
       }
     }
-    const rpos = new Float32Array(Math.max(1, drops.length) * 3);
-    const rcol = new Float32Array(Math.max(1, drops.length) * 3);
+    const nDrops = Math.max(1, drops.length);
+    const rpos = new Float32Array(nDrops * 2 * 3);      // line: tail + head
+    const rcol = new Float32Array(nDrops * 2 * 3);
     const rgeo = new THREE.BufferGeometry();
     rgeo.setAttribute("position", new THREE.BufferAttribute(rpos, 3));
     rgeo.setAttribute("color", new THREE.BufferAttribute(rcol, 3));
-    const rainPts = new THREE.Points(rgeo, new THREE.PointsMaterial({
-      vertexColors: true, size: 2.4, sizeAttenuation: true,
-      transparent: true, opacity: 0.9, depthWrite: false,
-      blending: THREE.AdditiveBlending,
+    const rainLines = new THREE.LineSegments(rgeo, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    this.group.add(rainPts);
-    this._rain = { drops, points: rainPts, pos: rpos, col: rcol, t: 0 };
+    this.group.add(rainLines);
+    this._rain = { drops, points: rainLines, pos: rpos, col: rcol, t: 0 };
 
     // Live cyclones (typhoons/hurricanes) from GDACS
     try {
       const storms = (await (await fetch("/api/globe/storms")).json()).storms || [];
       if (this.mode !== "rain") return;
-      const levelColor = { green: 0x69f0ae, orange: 0xffb74d, red: 0xff5252 };
+      // Alert level sets the storm's scale: green small, orange big, red massive
+      const levelSpec = {
+        green:  { radius: 5,  puffs: 42,  size: 7,  css: "#69f0ae" },
+        orange: { radius: 10, puffs: 80,  size: 10, css: "#ffb74d" },
+        red:    { radius: 18, puffs: 140, size: 14, css: "#ff5252" },
+      };
       this._storms = [];
       for (const s of storms) {
-        const colr = levelColor[s.level] || 0x69f0ae;
+        const spec = levelSpec[s.level] || levelSpec.green;
+        // A cyclone built of clouds: puffs along two spiral arms + dense eye
         const pts = [];
-        for (let i = 0; i <= 60; i++) {
-          const th = (i / 60) * Math.PI * 4;              // two-turn spiral
-          const rr = 1 + (i / 60) * 7;
-          pts.push(new THREE.Vector3(Math.cos(th) * rr, Math.sin(th) * rr, 0));
+        for (let i = 0; i < spec.puffs; i++) {
+          const t = i / spec.puffs;
+          const arm = i % 2 ? Math.PI : 0;
+          const th = arm + t * Math.PI * 3.2 + (Math.random() - 0.5) * 0.35;
+          const rr = spec.radius * (0.12 + t * 0.88) * (0.9 + Math.random() * 0.2);
+          pts.push(new THREE.Vector3(
+            Math.cos(th) * rr, Math.sin(th) * rr, (Math.random() - 0.5) * 1.2));
         }
-        const spiral = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(pts),
-          new THREE.LineBasicMaterial({ color: colr, transparent: true, opacity: 0.9 }),
-        );
+        for (let i = 0; i < 8; i++) {                     // the eye wall
+          const th = Math.random() * Math.PI * 2;
+          const rr = spec.radius * 0.14 * Math.random();
+          pts.push(new THREE.Vector3(Math.cos(th) * rr, Math.sin(th) * rr, 0.5));
+        }
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const spiral = new THREE.Points(geo, new THREE.PointsMaterial({
+          map: this._softTexture(), color: 0xffffff, size: spec.size,
+          sizeAttenuation: true, transparent: true, opacity: 0.85,
+          depthWrite: false,
+        }));
         const holder = new THREE.Group();
-        const surface = toXYZ(s.lat, s.lon, R + 2);
+        const surface = toXYZ(s.lat, s.lon, R + 2.5);
         holder.position.copy(surface);
         holder.quaternion.setFromUnitVectors(
           new THREE.Vector3(0, 0, 1), surface.clone().normalize());
@@ -536,9 +574,10 @@ export class Globe {
 
         const label = document.createElement("div");
         label.className = "globe-stormlabel";
-        label.innerHTML = `<span class="sn">${s.name}</span><span class="st">TROPICAL CYCLONE</span>`;
+        label.innerHTML = `<span class="sn" style="color:${spec.css}">${s.name}</span>`
+                        + `<span class="st">TROPICAL CYCLONE — ${s.level.toUpperCase()}</span>`;
         this.el.appendChild(label);
-        this._modeLabels.push({ local: toXYZ(s.lat, s.lon, R + 4), label });
+        this._modeLabels.push({ local: toXYZ(s.lat, s.lon, R + spec.radius * 0.6 + 3), label });
       }
     } catch { /* storms are a bonus — rain still works without them */ }
   }
@@ -548,10 +587,14 @@ export class Globe {
     r.t += dt;
     r.drops.forEach((d, i) => {
       const h = 1 - ((r.t * d.spd + d.phase) % 1);        // 1 → 0 falling
-      const v = toXYZ(d.lat, d.lon, R + 1 + h * 5);
-      r.pos[i * 3] = v.x; r.pos[i * 3 + 1] = v.y; r.pos[i * 3 + 2] = v.z;
-      const b = 0.25 + 0.75 * h;                          // fade as it lands
-      r.col[i * 3] = 0.35 * b; r.col[i * 3 + 1] = 0.6 * b; r.col[i * 3 + 2] = 1.0 * b;
+      const head = toXYZ(d.lat, d.lon, R + 1 + h * 4.5);
+      const tail = toXYZ(d.lat, d.lon, R + 1 + h * 4.5 + 1.6 + d.inten);
+      const b = (0.35 + 0.65 * h) * (0.6 + 0.4 * d.inten);
+      const k = i * 6;
+      r.pos[k] = tail.x; r.pos[k + 1] = tail.y; r.pos[k + 2] = tail.z;
+      r.pos[k + 3] = head.x; r.pos[k + 4] = head.y; r.pos[k + 5] = head.z;
+      r.col[k] = 0.12 * b; r.col[k + 1] = 0.25 * b; r.col[k + 2] = 0.5 * b;
+      r.col[k + 3] = 0.45 * b; r.col[k + 4] = 0.7 * b; r.col[k + 5] = 1.0 * b;
     });
     r.points.geometry.getAttribute("position").needsUpdate = true;
     r.points.geometry.getAttribute("color").needsUpdate = true;

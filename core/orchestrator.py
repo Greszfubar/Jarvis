@@ -179,6 +179,7 @@ class Orchestrator:
         try:
             result = subprocess.run(
                 [CLAUDE_CMD, "-p", user_message,
+                 "--model", "sonnet",   # conversation model until the aggregator lands
                  "--system-prompt", system_prompt,
                  "--output-format", "json"],
                 capture_output=True,
