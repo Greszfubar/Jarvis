@@ -29,17 +29,18 @@ const LABEL_CITIES = [
   { name: "CAPE TOWN", lat: -33.9, lon: 18.4 },{ name: "REYKJAVÍK", lat: 64.1, lon: -21.9 },
 ];
 
-// Heat colour ramp: deep blue → blue → violet → purple → magenta → red → white-hot
+// Heat colour ramp (cold → hot): purple → magenta → blue → green → yellow → orange → red
 const HEAT_STOPS = [
-  [-30, 0.06, 0.12, 0.50],
-  [-15, 0.12, 0.30, 0.85],
-  [  0, 0.30, 0.45, 0.95],
-  [ 10, 0.50, 0.35, 0.92],
-  [ 18, 0.68, 0.28, 0.88],
-  [ 25, 0.90, 0.22, 0.58],
-  [ 31, 1.00, 0.22, 0.18],
-  [ 38, 1.00, 0.60, 0.45],
-  [ 45, 1.00, 1.00, 1.00],
+  [-30, 0.55, 0.20, 0.85],   // purple
+  [-20, 0.85, 0.25, 0.75],   // magenta
+  [-10, 0.25, 0.40, 0.95],   // blue
+  [  2, 0.15, 0.60, 0.90],   // cyan-blue
+  [ 10, 0.20, 0.80, 0.40],   // green
+  [ 17, 0.65, 0.85, 0.30],   // yellow-green
+  [ 23, 0.95, 0.88, 0.25],   // yellow
+  [ 30, 1.00, 0.60, 0.15],   // orange
+  [ 38, 1.00, 0.30, 0.12],   // red
+  [ 45, 1.00, 0.12, 0.10],   // deep red
 ];
 
 function heatColor(t, out) {
