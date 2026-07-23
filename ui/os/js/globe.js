@@ -269,6 +269,9 @@ export class Globe {
     });
     const col = this.landPoints.geometry.getAttribute("color");
     const c = new THREE.Color();
+
+    // Pass 1: interpolate every dot's temperature
+    const temps = new Float32Array(this._landDots.length);
     this._landDots.forEach(([lat, lon], i) => {
       const v = toXYZ(lat, lon, 1);
       let wSum = 0, tSum = 0;
@@ -278,8 +281,20 @@ export class Globe {
         const w = 1 / (d * d);
         wSum += w; tSum += w * ct.t;
       }
-      const t = tSum / wSum;
-      heatColor(t, c);                                     // blue→purple→red→white
+      temps[i] = tSum / wSum;
+    });
+
+    // Pass 2: stretch the ramp over today's actual spread (5th–95th
+    // percentile) — otherwise a July world is one long orange smear.
+    const sorted = Array.from(temps).sort((a, b) => a - b);
+    let lo = sorted[Math.floor(sorted.length * 0.05)];
+    let hi = sorted[Math.floor(sorted.length * 0.95)];
+    if (hi - lo < 12) { const mid = (hi + lo) / 2; lo = mid - 6; hi = mid + 6; }
+    const RAMP_LO = HEAT_STOPS[0][0], RAMP_HI = HEAT_STOPS[HEAT_STOPS.length - 1][0];
+
+    temps.forEach((t, i) => {
+      const k = Math.max(0, Math.min(1, (t - lo) / (hi - lo)));
+      heatColor(RAMP_LO + k * (RAMP_HI - RAMP_LO), c);
       col.array[i * 3] = c.r; col.array[i * 3 + 1] = c.g; col.array[i * 3 + 2] = c.b;
     });
     col.needsUpdate = true;
