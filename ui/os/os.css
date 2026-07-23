@@ -110,6 +110,16 @@ html, body {
 .globe-stormlabel .sn { font-size: 11px; letter-spacing: 0.26em; color: #ff8a80; }
 .globe-stormlabel .st { font-size: 7px; letter-spacing: 0.3em; color: var(--dim); }
 
+.globe-flightlabel {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  text-align: center; transition: opacity .25s linear;
+  text-shadow: 0 0 10px #000; will-change: transform;
+}
+.globe-flightlabel .fn { font-size: 11px; letter-spacing: 0.26em; color: #7fd4ff; }
+.globe-flightlabel .fd { font-size: 7px; letter-spacing: 0.3em; color: var(--white); }
+.globe-flightlabel .fr { font-size: 7px; letter-spacing: 0.3em; color: var(--dim); }
+
 #footnote {
   position: absolute; bottom: 12vh; left: 50%; transform: translateX(-50%);
   font-size: 10px; letter-spacing: 0.6em; text-transform: uppercase;

@@ -2,7 +2,7 @@
 //
 //   const globe = new Globe(containerEl);  await globe.init();
 //   globe.flyTo(40.4, -3.7);               // glide to lat/lon
-//   globe.setMode("heat" | "wind" | "rain" | "clear");
+//   globe.setMode("heat" | "wind" | "rain" | "flights" | "clear");
 //
 // Interaction: drag to spin (mouse, or pinch-drag via hands.js synthesized
 // pointer events), wheel / hand-zoom to dolly. Idle → slow natural spin.
@@ -12,6 +12,9 @@ import * as THREE from "/os/static/vendor/three.module.js";
 const R = 100;                       // globe radius (scene units)
 const IDLE_SPIN = 0.04;              // rad/s when untouched
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
+const FLIGHTS_REFRESH_MS = 155 * 1000;  // matches the server cache TTL
+const FLIGHT_TIME_SCALE = 12;        // planes crawl at 12× real speed —
+                                     // visible motion, small drift per refresh
 const FOCUS_HOLD_MS = 75 * 1000;     // after a fly/mode command: hold still,
                                      // then auto-clear + resume natural spin
 
@@ -128,10 +131,11 @@ export class Globe {
     this.group.add(this.landPoints);
 
     // Occluder sphere: hides dots on the far side, keeps the black-void look
-    this.group.add(new THREE.Mesh(
+    this._occluder = new THREE.Mesh(
       new THREE.SphereGeometry(R - 1.5, 48, 32),
       new THREE.MeshBasicMaterial({ color: 0x000000 }),
-    ));
+    );
+    this.group.add(this._occluder);
 
     // Faint graticule
     const grat = new THREE.Group();
@@ -231,6 +235,11 @@ export class Globe {
     }
     this._holdUntil = performance.now() + this.holdMs;
 
+    if (mode === "flights") {
+      await this._buildFlights();     // fetches + schedules its own refresh
+      return;
+    }
+
     let cities;
     try {
       cities = (await (await fetch(`/api/globe/weather`)).json()).cities || [];
@@ -256,6 +265,9 @@ export class Globe {
     };
     drop(this.weatherPoints); this.weatherPoints = null;
     if (this._wind) { drop(this._wind.lines); this._wind = null; }
+    clearTimeout(this._flightsTimer);
+    this._disposeFlightObjects();
+    this._clearFlightSel();
     drop(this._clouds); this._clouds = null;
     if (this._rain) { drop(this._rain.points); this._rain = null; }
     if (this._storms) {
@@ -601,6 +613,231 @@ export class Globe {
     r.points.geometry.getAttribute("color").needsUpdate = true;
   }
 
+  // ── Flights: every airborne aircraft OpenSky can see ────────────────────
+  //
+  // Head dot + short tail along the true track, coloured by altitude
+  // (amber low → ice-blue at cruise). Planes dead-reckon along their
+  // heading at FLIGHT_TIME_SCALE× real speed between API refreshes; on
+  // refresh they ease back to their true positions instead of snapping.
+  // Click/pinch a plane → callsign, altitude, speed, and (via adsbdb)
+  // the origin → destination route drawn as a great-circle arc.
+
+  async _buildFlights() {
+    let flights;
+    try {
+      flights = (await (await fetch("/api/globe/flights")).json()).flights || [];
+    } catch { return; }
+    if (this.mode !== "flights") return;
+    this._makeFlightObjects(flights.map((f) => ({ ...f, tgt: null })));
+    this._flightsTimer = setTimeout(() => this._refreshFlights(), FLIGHTS_REFRESH_MS);
+  }
+
+  _makeFlightObjects(list) {
+    const n = Math.max(1, list.length);
+    const hpos = new Float32Array(n * 3);
+    const hcol = new Float32Array(n * 3);
+    const tpos = new Float32Array(n * 2 * 3);
+    const tcol = new Float32Array(n * 2 * 3);
+    // Altitude → colour, set once (positions update every frame)
+    list.forEach((p, i) => {
+      const k = Math.min(1, (p.alt || 0) / 11000);   // 0 ground → 1 cruise
+      const r = 1.0 - 0.5 * k, g = 0.68 + 0.17 * k, b = 0.35 + 0.65 * k;
+      hcol[i * 3] = r; hcol[i * 3 + 1] = g; hcol[i * 3 + 2] = b;
+      const t = i * 6;
+      tcol[t] = r * 0.1; tcol[t + 1] = g * 0.1; tcol[t + 2] = b * 0.1;
+      tcol[t + 3] = r * 0.6; tcol[t + 4] = g * 0.6; tcol[t + 5] = b * 0.6;
+    });
+    const hgeo = new THREE.BufferGeometry();
+    hgeo.setAttribute("position", new THREE.BufferAttribute(hpos, 3));
+    hgeo.setAttribute("color", new THREE.BufferAttribute(hcol, 3));
+    const heads = new THREE.Points(hgeo, new THREE.PointsMaterial({
+      map: this._softTexture(), vertexColors: true, size: 2.6,
+      sizeAttenuation: true, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    const tgeo = new THREE.BufferGeometry();
+    tgeo.setAttribute("position", new THREE.BufferAttribute(tpos, 3));
+    tgeo.setAttribute("color", new THREE.BufferAttribute(tcol, 3));
+    const tails = new THREE.LineSegments(tgeo, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    this.group.add(heads);
+    this.group.add(tails);
+    this._flights = { list, heads, tails, hpos, tpos };
+    this._advanceFlights(0);                          // place everything now
+  }
+
+  _disposeFlightObjects() {
+    const F = this._flights;
+    if (!F) return;
+    for (const obj of [F.heads, F.tails]) {
+      this.group.remove(obj);
+      obj.geometry.dispose();
+      obj.material.dispose();
+    }
+    this._flights = null;
+  }
+
+  async _refreshFlights() {
+    let flights = null;
+    try {
+      flights = (await (await fetch("/api/globe/flights")).json()).flights || null;
+    } catch { /* keep dead-reckoning on the old data */ }
+    if (this.mode !== "flights") return;
+    if (flights && flights.length && this._flights) {
+      const prev = new Map(this._flights.list.map((p) => [p.id, p]));
+      const selId = this._flightSel != null
+        ? this._flights.list[this._flightSel]?.id : null;
+      const list = flights.map((f) => {
+        const old = prev.get(f.id);
+        const p = { ...f, tgt: null };
+        if (old) {                       // keep the shown position, ease to truth
+          p.tgt = { lat: f.lat, lon: f.lon };
+          p.lat = old.lat; p.lon = old.lon;
+        }
+        return p;
+      });
+      this._disposeFlightObjects();
+      this._makeFlightObjects(list);
+      if (selId != null) {
+        const idx = list.findIndex((p) => p.id === selId);
+        if (idx >= 0) this._flightSel = idx;
+        else this._clearFlightSel();     // it landed / left coverage
+      }
+    }
+    this._flightsTimer = setTimeout(() => this._refreshFlights(), FLIGHTS_REFRESH_MS);
+  }
+
+  _advanceFlights(dt) {
+    const F = this._flights;
+    const D2R = Math.PI / 180;
+    const degps = FLIGHT_TIME_SCALE / 111320;         // deg/s per m/s of speed
+    F.list.forEach((p, i) => {
+      if (p.tgt) {                                    // post-refresh easing
+        const k = Math.min(1, dt * 0.9);
+        let dlon = p.tgt.lon - p.lon;
+        if (dlon > 180) dlon -= 360; else if (dlon < -180) dlon += 360;
+        p.lat += (p.tgt.lat - p.lat) * k;
+        p.lon += dlon * k;
+        if (Math.abs(p.tgt.lat - p.lat) < 0.05 && Math.abs(dlon) < 0.05) p.tgt = null;
+      } else if (dt) {                                // dead-reckon along track
+        const hd = (p.hdg || 0) * D2R;
+        const d = (p.v || 0) * degps * dt;
+        p.lat = Math.max(-89, Math.min(89, p.lat + Math.cos(hd) * d));
+        p.lon += (Math.sin(hd) * d) / Math.max(0.2, Math.cos(p.lat * D2R));
+        if (p.lon > 180) p.lon -= 360; else if (p.lon < -180) p.lon += 360;
+      }
+      // Head + tail vertices, inline (7k planes — no Vector3 churn)
+      const hd = (p.hdg || 0) * D2R;
+      const cosLat = Math.max(0.2, Math.cos(p.lat * D2R));
+      const len = 0.9 + Math.min(1, (p.v || 0) / 300) * 1.6;
+      const tlat = p.lat - Math.cos(hd) * len;
+      const tlon = p.lon - (Math.sin(hd) * len) / cosLat;
+      const rr = R + 2;
+      let la = p.lat * D2R, lo = p.lon * D2R;
+      const hx = rr * Math.cos(la) * Math.sin(lo);
+      const hy = rr * Math.sin(la);
+      const hz = rr * Math.cos(la) * Math.cos(lo);
+      la = tlat * D2R; lo = tlon * D2R;
+      const b = i * 3, t = i * 6;
+      F.hpos[b] = hx; F.hpos[b + 1] = hy; F.hpos[b + 2] = hz;
+      F.tpos[t] = rr * Math.cos(la) * Math.sin(lo);
+      F.tpos[t + 1] = rr * Math.sin(la);
+      F.tpos[t + 2] = rr * Math.cos(la) * Math.cos(lo);
+      F.tpos[t + 3] = hx; F.tpos[t + 4] = hy; F.tpos[t + 5] = hz;
+    });
+    F.heads.geometry.getAttribute("position").needsUpdate = true;
+    F.tails.geometry.getAttribute("position").needsUpdate = true;
+  }
+
+  // Click/pinch a plane → info label + route arc
+  _pickFlight(e) {
+    const F = this._flights;
+    if (!F) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const rc = this._raycaster || (this._raycaster = new THREE.Raycaster());
+    rc.params.Points.threshold = 2.4;
+    rc.setFromCamera(ndc, this.camera);
+    const sphere = rc.intersectObject(this._occluder)[0];
+    const hit = rc.intersectObject(F.heads)
+      .find((h) => !sphere || h.distance < sphere.distance + 2);  // near side only
+    if (!hit) { this._clearFlightSel(); return; }
+    this._selectFlight(hit.index);
+  }
+
+  _selectFlight(idx) {
+    this._clearFlightSel();
+    const p = this._flights.list[idx];
+    this._flightSel = idx;
+    const label = document.createElement("div");
+    label.className = "globe-flightlabel";
+    const name = p.cs || p.id.toUpperCase();
+    label.innerHTML =
+      `<span class="fn">${name}</span>`
+      + `<span class="fd">${(p.alt || 0).toLocaleString()} M — `
+      + `${Math.round((p.v || 0) * 3.6)} KM/H</span>`
+      + `<span class="fr">${p.co.toUpperCase()}</span>`;
+    this.el.appendChild(label);
+    this._flightLabel = label;
+    this._lastInteract = performance.now();
+
+    if (!p.cs) return;
+    fetch(`/api/globe/flight/${encodeURIComponent(p.cs)}`)
+      .then((r) => r.json())
+      .then(({ route }) => {
+        if (!route || this._flightLabel !== label) return;   // stale pick
+        label.querySelector(".fr").textContent =
+          `${route.from.iata} ${route.from.city} → ${route.to.iata} ${route.to.city}`
+            .toUpperCase();
+        this._drawRoute(route.from, route.to);
+      })
+      .catch(() => {});
+  }
+
+  _clearFlightSel() {
+    this._flightSel = null;
+    this._flightLabel?.remove();
+    this._flightLabel = null;
+    if (this._route) {
+      this.group.remove(this._route);
+      this._route.geometry.dispose();
+      this._route.material.dispose();
+      this._route = null;
+    }
+  }
+
+  _drawRoute(from, to) {
+    const a = toXYZ(from.lat, from.lon, 1);
+    const b = toXYZ(to.lat, to.lon, 1);
+    const ang = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
+    const sinAng = Math.sin(ang) || 1;
+    const pts = [];
+    for (let i = 0; i <= 72; i++) {
+      const t = i / 72;
+      const sa = Math.sin((1 - t) * ang) / sinAng;
+      const sb = Math.sin(t * ang) / sinAng;
+      const r = R + 1.5 + Math.sin(t * Math.PI) * Math.min(14, ang * 22);
+      pts.push(new THREE.Vector3(
+        (a.x * sa + b.x * sb) * r,
+        (a.y * sa + b.y * sb) * r,
+        (a.z * sa + b.z * sb) * r,
+      ));
+    }
+    this._route = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({
+        color: 0x7fd4ff, transparent: true, opacity: 0.8,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    this.group.add(this._route);
+  }
+
   // ── Fly-to glide ────────────────────────────────────────────────────────
 
   flyTo(lat, lon, dist = null) {
@@ -636,10 +873,18 @@ export class Globe {
     const dom = this.renderer.domElement;
     let dragging = false, px = 0, py = 0;
     dom.style.touchAction = "none";
+    let downX = 0, downY = 0;
     dom.addEventListener("pointerdown", (e) => {
       dragging = true; px = e.clientX; py = e.clientY;
+      downX = e.clientX; downY = e.clientY;
       this._fly = null;
       this._lastInteract = performance.now();
+    });
+    // A click (not a drag) in flights mode picks the nearest plane
+    dom.addEventListener("pointerup", (e) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) < 6) {
+        this._pickFlight(e);
+      }
     });
     window.addEventListener("pointermove", (e) => {
       if (!dragging) return;
@@ -714,6 +959,7 @@ export class Globe {
     if (this._wind) this._advanceWind(dt);
     if (this._rain) this._animateRain(dt);
     if (this._storms) for (const s of this._storms) s.spiral.rotation.z -= dt * 2.4;
+    if (this._flights) this._advanceFlights(dt);
 
     // Project labels (pins + heat-mode temps); fade behind the horizon
     const projectLabel = (world, label, interactive) => {
@@ -731,6 +977,12 @@ export class Globe {
     }
     for (const ml of this._modeLabels) {
       projectLabel(ml.local.clone().applyMatrix4(this.group.matrixWorld), ml.label, false);
+    }
+    if (this._flightLabel && this._flightSel != null && this._flights) {
+      const p = this._flights.list[this._flightSel];
+      projectLabel(
+        toXYZ(p.lat, p.lon, R + 3).applyMatrix4(this.group.matrixWorld),
+        this._flightLabel, false);
     }
 
     this.renderer.render(this.scene, this.camera);

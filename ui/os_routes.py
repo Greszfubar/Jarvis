@@ -56,7 +56,10 @@ _WORLD_CITIES = [
 ]
 _weather_cache = {"ts": 0.0, "cities": []}
 _storms_cache = {"ts": 0.0, "storms": []}
+_flights_cache = {"ts": 0.0, "flights": []}
+_routes_cache = {}          # callsign → {route info} (routes rarely change)
 _WEATHER_TTL = 30 * 60
+_FLIGHTS_TTL = 150          # OpenSky anonymous credits are scarce — ~24 calls/h max
 
 
 
@@ -195,6 +198,70 @@ def register_os(app: FastAPI, broadcast):
             return {"storms": _storms_cache["storms"], "error": str(e)}
         _storms_cache.update(ts=now, storms=storms)
         return {"storms": storms, "cached": False}
+
+    @app.get("/api/globe/flights")
+    async def globe_flights():
+        """Every airborne aircraft OpenSky can see, trimmed for the globe's
+        flights mode. Cached — anonymous OpenSky credits are limited."""
+        now = time.time()
+        if now - _flights_cache["ts"] < _FLIGHTS_TTL and _flights_cache["flights"]:
+            return {"flights": _flights_cache["flights"], "cached": True}
+        try:
+            async with httpx.AsyncClient(timeout=25) as client:
+                r = await client.get("https://opensky-network.org/api/states/all")
+                states = r.json().get("states") or []
+        except Exception as e:
+            log.warning(f"OpenSky fetch failed: {e}")
+            return {"flights": _flights_cache["flights"], "error": str(e)}
+        flights = []
+        for s in states:
+            # state vector: 0 icao24, 1 callsign, 2 country, 5 lon, 6 lat,
+            # 7 baro_alt, 8 on_ground, 9 velocity m/s, 10 true_track
+            if s[5] is None or s[6] is None or s[8]:
+                continue
+            flights.append({
+                "id": s[0],
+                "cs": (s[1] or "").strip(),
+                "lat": round(s[6], 2), "lon": round(s[5], 2),
+                "alt": int(s[7] or 0),
+                "v": int(s[9] or 0),
+                "hdg": int(s[10] or 0),
+                "co": s[2] or "",
+            })
+        _flights_cache.update(ts=now, flights=flights)
+        return {"flights": flights, "cached": False}
+
+    @app.get("/api/globe/flight/{callsign}")
+    async def globe_flight(callsign: str):
+        """Route lookup (origin → destination airports) for a picked plane."""
+        cs = callsign.strip().upper()
+        if not cs or len(cs) > 12 or not cs.isalnum():
+            return {"route": None}
+        if cs in _routes_cache:
+            return {"route": _routes_cache[cs], "cached": True}
+        route = None
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                r = await client.get(f"https://api.adsbdb.com/v0/callsign/{cs}")
+                resp = r.json().get("response")   # a string on unknown callsigns
+                fr = resp.get("flightroute") if isinstance(resp, dict) else {}
+                fr = fr or {}
+                o, d = fr.get("origin") or {}, fr.get("destination") or {}
+                if o.get("latitude") is not None and d.get("latitude") is not None:
+                    route = {
+                        "airline": (fr.get("airline") or {}).get("name", ""),
+                        "from": {"iata": o.get("iata_code", ""),
+                                 "city": o.get("municipality", ""),
+                                 "lat": o["latitude"], "lon": o["longitude"]},
+                        "to": {"iata": d.get("iata_code", ""),
+                               "city": d.get("municipality", ""),
+                               "lat": d["latitude"], "lon": d["longitude"]},
+                    }
+        except Exception as e:
+            log.warning(f"route lookup {cs} failed: {e}")
+            return {"route": None, "error": str(e)}
+        _routes_cache[cs] = route            # cache misses too — no re-hammering
+        return {"route": route, "cached": False}
 
     @app.post("/api/os/camera")
     async def os_camera(body: dict):

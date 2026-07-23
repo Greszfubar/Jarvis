@@ -18,7 +18,7 @@
 > - Voice stack upgrade path: Deepgram STT + Cartesia TTS + Sonnet streaming
 >   (current Whisper + `say`/ElevenLabs is the placeholder).
 
-**Status: Phase 0 ✓ · Phase 1 live ✓ · Phase 2 built ✓ · Globe 3.1–3.4 ✓ — next: globe news/radio/flights, or the island**
+**Status: Phase 0 ✓ · Phase 1 live ✓ · Phase 2 built ✓ · Globe 3.1–3.4 + flights 3.7 ✓ — next: globe news/radio, or the island**
 
 **Window layout (Evan's 3 screens, 2026-07-22):** screen 1 = the Jarvis window (`/os` — rings, voice, boot); screen 2 = the Globe overview (`/globe`); screen 3 = THE STAGE (`/stage` — Jarvis opens pages/notes there via `[ACTION:os:open|url]`, `[ACTION:os:note|text]`, `[ACTION:os:close|]`). `JARVIS_OS=1` opens all three fullscreen automatically when the displays are present.
 
@@ -73,7 +73,7 @@ Goal: the spinning globe with pins, spinnable by hand, mode-switchable by voice.
 - [x] 3.4 Weather modes: heat / wind / rain from one batched Open-Meteo call over 135 world cities (30-min cache, `/api/globe/weather`); voice via `[ACTION:os:globe|heat]`; verified live (135 cities, real data)
 - [ ] 3.5 News mode: stories pinned to the globe from the news agent; pinch to open article/video natively in an OS window
 - [ ] 3.6 Radio mode: globe as tuner via radio-browser.info; zoom into a station to listen
-- [ ] 3.7 Flights: live plane arcs (OpenSky) + route view with flight info panel
+- [x] 3.7 Flights: every airborne aircraft OpenSky sees (~7,000+) as altitude-coloured head+tail marks, dead-reckoned along their track between 155 s refreshes (easing back to truth, no snapping); click/pinch a plane → callsign + altitude + speed label, and the origin → destination route (adsbdb) drawn as a great-circle arc. Voice: `[ACTION:os:globe|flights]`
 - [ ] 3.8 Directions: high-scale country routes and low-scale street directions with Maps handoff link
 - [ ] 3.9 Wars mode: illustrative conflict layer from FRIDAY-curated GeoJSON
 
