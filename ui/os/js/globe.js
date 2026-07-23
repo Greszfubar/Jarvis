@@ -238,24 +238,38 @@ export class Globe {
 
     if (mode === "heat") {
       this._paintHeat(cities);
-    } else {
-      this._buildMarkerLayer(mode, cities);
+    } else if (mode === "wind") {
+      this._buildWind(cities);
+    } else if (mode === "rain") {
+      await this._buildRain(cities);
     }
     this._weatherTimer = setTimeout(() => this.setMode(mode), WEATHER_REFRESH_MS);
   }
 
   _clearWeatherLayer() {
-    if (this.weatherPoints) {
-      this.group.remove(this.weatherPoints);
-      this.weatherPoints.geometry.dispose();
-      this.weatherPoints.material.dispose();
-      this.weatherPoints = null;
+    const drop = (obj) => {
+      if (!obj) return;
+      this.group.remove(obj);
+      obj.geometry?.dispose();
+      obj.material?.dispose();
+    };
+    drop(this.weatherPoints); this.weatherPoints = null;
+    if (this._wind) { drop(this._wind.lines); this._wind = null; }
+    drop(this._clouds); this._clouds = null;
+    if (this._rain) { drop(this._rain.points); this._rain = null; }
+    if (this._storms) {
+      for (const s of this._storms) {
+        s.spiral.geometry.dispose();
+        s.spiral.material.dispose();
+        this.group.remove(s.holder);
+      }
+      this._storms = null;
     }
     // reset land dots to white
     const col = this.landPoints.geometry.getAttribute("color");
     col.array.fill(1);
     col.needsUpdate = true;
-    // drop temp labels
+    // drop temp/storm labels
     for (const l of this._modeLabels) l.label.remove();
     this._modeLabels = [];
   }
@@ -315,31 +329,232 @@ export class Globe {
     }
   }
 
-  _buildMarkerLayer(mode, cities) {
-    const pos = new Float32Array(cities.length * 3);
-    const col = new Float32Array(cities.length * 3);
-    const c = new THREE.Color();
-    cities.forEach((ct, i) => {
-      const v = toXYZ(ct.lat, ct.lon, R + 1.2);
-      pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-      if (mode === "wind") {
-        const k = Math.max(0, Math.min(1, ct.w / 70));             // 0..70 km/h
-        c.setHSL(0.5, 0.85, 0.25 + 0.55 * k);
-      } else {                                                     // rain
-        const k = Math.max(0.06, Math.min(1, ct.p / 6));           // 0..6 mm
-        c.setHSL(0.6, 0.9, 0.18 + 0.55 * k);
-      }
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  // ── Wind: streamline particles flowing with the real wind field ─────────
+  //
+  // A 5° vector-field grid is interpolated (IDW) from the city wind
+  // speed+direction; ~900 particles advect through it leaving short
+  // trails, so the motion itself shows the direction.
+
+  _buildWind(cities) {
+    const NLON = 72, NLAT = 36;
+    const grid = new Float32Array(NLON * NLAT * 2);   // u (east), v (north) km/h
+    const cityVecs = cities.map((ct) => {
+      const v = toXYZ(ct.lat, ct.lon, 1);
+      const dir = THREE.MathUtils.degToRad(ct.wd || 0);   // wind FROM this bearing
+      return { x: v.x, y: v.y, z: v.z,
+               u: -Math.sin(dir) * ct.w, v: -Math.cos(dir) * ct.w };
     });
+    for (let j = 0; j < NLAT; j++) {
+      const lat = -90 + (j + 0.5) * (180 / NLAT);
+      for (let i = 0; i < NLON; i++) {
+        const lon = -180 + (i + 0.5) * (360 / NLON);
+        const p = toXYZ(lat, lon, 1);
+        let wSum = 0, uSum = 0, vSum = 0;
+        for (const ct of cityVecs) {
+          const dot = Math.max(-1, Math.min(1, p.x * ct.x + p.y * ct.y + p.z * ct.z));
+          const d = Math.acos(dot) + 0.03;
+          const w = 1 / (d * d);
+          wSum += w; uSum += w * ct.u; vSum += w * ct.v;
+        }
+        grid[(j * NLON + i) * 2] = uSum / wSum;
+        grid[(j * NLON + i) * 2 + 1] = vSum / wSum;
+      }
+    }
+
+    const N = 1500;
+    const particles = [];
+    for (let n = 0; n < N; n++) particles.push(this._spawnParticle());
+    const pos = new Float32Array(N * 2 * 3);
+    const col = new Float32Array(N * 2 * 3);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-    this.weatherPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-      vertexColors: true, size: 4.2, sizeAttenuation: true,
-      transparent: true, opacity: 0.95, depthWrite: false,
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    this.group.add(lines);
+    this._wind = { grid, NLON, NLAT, particles, lines, pos, col };
+  }
+
+  _spawnParticle() {
+    const lat = THREE.MathUtils.radToDeg(Math.asin(Math.random() * 2 - 1)) * 0.94;
+    const lon = Math.random() * 360 - 180;
+    return {
+      lat, lon,
+      tlat: lat, tlon: lon,              // lagged tail position
+      age: 0, life: 3 + Math.random() * 5,
+    };
+  }
+
+  _windAt(lat, lon) {
+    const w = this._wind;
+    const i = Math.min(w.NLON - 1, Math.max(0, Math.floor((lon + 180) / (360 / w.NLON))));
+    const j = Math.min(w.NLAT - 1, Math.max(0, Math.floor((lat + 90) / (180 / w.NLAT))));
+    const k = (j * w.NLON + i) * 2;
+    return [w.grid[k], w.grid[k + 1]];
+  }
+
+  _advanceWind(dt) {
+    const w = this._wind;
+    const SPEED_K = 0.22;              // km/h → degrees per second (stylised)
+    const TAIL_LAG = 0.9;              // lower = longer comet trails
+    const c = new THREE.Color();
+    w.particles.forEach((p, n) => {
+      const [u, v] = this._windAt(p.lat, p.lon);
+      p.lat += v * SPEED_K * dt;
+      p.lon += (u * SPEED_K * dt) / Math.max(0.25, Math.cos(THREE.MathUtils.degToRad(p.lat)));
+      if (p.lon > 180) p.lon -= 360;
+      if (p.lon < -180) p.lon += 360;
+      // Tail chases the head with a lag → visible streak in the wind direction
+      const lag = Math.min(1, dt * TAIL_LAG);
+      p.tlat += (p.lat - p.tlat) * lag;
+      p.tlon += (p.lon - p.tlon) * lag;
+      if (Math.abs(p.lon - p.tlon) > 90) { p.tlon = p.lon; p.tlat = p.lat; } // date-line jump
+      p.age += dt;
+      if (p.age > p.life || Math.abs(p.lat) > 85) {
+        Object.assign(p, this._spawnParticle());
+      }
+
+      const head = toXYZ(p.lat, p.lon, R + 1.5);
+      const tail = toXYZ(p.tlat, p.tlon, R + 1.5);
+      const speed = Math.hypot(u, v);
+      const k = Math.min(1, speed / 28);          // typical winds fill the range
+      const fade = Math.min(1, p.age * 2, (p.life - p.age));
+      c.setRGB(0.45 + 0.4 * k, 0.8 + 0.15 * k, 1.0).multiplyScalar(0.6 + 0.4 * k);
+      const b = n * 6;
+      w.pos[b] = tail.x; w.pos[b + 1] = tail.y; w.pos[b + 2] = tail.z;
+      w.pos[b + 3] = head.x; w.pos[b + 4] = head.y; w.pos[b + 5] = head.z;
+      w.col[b] = c.r * 0.25 * fade; w.col[b + 1] = c.g * 0.25 * fade; w.col[b + 2] = c.b * 0.25 * fade;
+      w.col[b + 3] = c.r * fade; w.col[b + 4] = c.g * fade; w.col[b + 5] = c.b * fade;
+    });
+    w.lines.geometry.getAttribute("position").needsUpdate = true;
+    w.lines.geometry.getAttribute("color").needsUpdate = true;
+  }
+
+  // ── Rain: soft clouds, falling rain, live cyclones (GDACS) ──────────────
+
+  _softTexture() {
+    if (this._softTex) return this._softTex;
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 64;
+    const g = cv.getContext("2d").createRadialGradient(32, 32, 2, 32, 32, 30);
+    g.addColorStop(0, "rgba(255,255,255,0.9)");
+    g.addColorStop(0.5, "rgba(255,255,255,0.35)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    this._softTex = new THREE.CanvasTexture(cv);
+    return this._softTex;
+  }
+
+  async _buildRain(cities) {
+    // Clouds: puffs where cover is high, grey-white by coverage
+    const puffs = [];
+    for (const ct of cities) {
+      if ((ct.c || 0) < 35) continue;
+      const n = ct.c > 75 ? 4 : 2;
+      for (let i = 0; i < n; i++) {
+        puffs.push({
+          lat: ct.lat + (Math.random() - 0.5) * 7,
+          lon: ct.lon + (Math.random() - 0.5) * 9,
+          k: ct.c / 100,
+        });
+      }
+    }
+    const cpos = new Float32Array(puffs.length * 3);
+    const ccol = new Float32Array(puffs.length * 3);
+    puffs.forEach((p, i) => {
+      const v = toXYZ(p.lat, p.lon, R + 5);
+      cpos[i * 3] = v.x; cpos[i * 3 + 1] = v.y; cpos[i * 3 + 2] = v.z;
+      const b = 0.35 + 0.5 * p.k;
+      ccol[i * 3] = b; ccol[i * 3 + 1] = b; ccol[i * 3 + 2] = b;
+    });
+    const cgeo = new THREE.BufferGeometry();
+    cgeo.setAttribute("position", new THREE.BufferAttribute(cpos, 3));
+    cgeo.setAttribute("color", new THREE.BufferAttribute(ccol, 3));
+    this._clouds = new THREE.Points(cgeo, new THREE.PointsMaterial({
+      map: this._softTexture(), vertexColors: true, size: 16,
+      sizeAttenuation: true, transparent: true, opacity: 0.55,
+      depthWrite: false,
+    }));
+    this.group.add(this._clouds);
+
+    // Rain: falling droplets under wet cities
+    const drops = [];
+    for (const ct of cities) {
+      if ((ct.p || 0) < 0.25) continue;
+      const n = Math.min(14, 4 + Math.round(ct.p * 3));
+      for (let i = 0; i < n; i++) {
+        drops.push({
+          lat: ct.lat + (Math.random() - 0.5) * 5,
+          lon: ct.lon + (Math.random() - 0.5) * 7,
+          phase: Math.random(), spd: 0.5 + Math.random() * 0.5,
+        });
+      }
+    }
+    const rpos = new Float32Array(Math.max(1, drops.length) * 3);
+    const rcol = new Float32Array(Math.max(1, drops.length) * 3);
+    const rgeo = new THREE.BufferGeometry();
+    rgeo.setAttribute("position", new THREE.BufferAttribute(rpos, 3));
+    rgeo.setAttribute("color", new THREE.BufferAttribute(rcol, 3));
+    const rainPts = new THREE.Points(rgeo, new THREE.PointsMaterial({
+      vertexColors: true, size: 2.4, sizeAttenuation: true,
+      transparent: true, opacity: 0.9, depthWrite: false,
       blending: THREE.AdditiveBlending,
     }));
-    this.group.add(this.weatherPoints);
+    this.group.add(rainPts);
+    this._rain = { drops, points: rainPts, pos: rpos, col: rcol, t: 0 };
+
+    // Live cyclones (typhoons/hurricanes) from GDACS
+    try {
+      const storms = (await (await fetch("/api/globe/storms")).json()).storms || [];
+      if (this.mode !== "rain") return;
+      const levelColor = { green: 0x69f0ae, orange: 0xffb74d, red: 0xff5252 };
+      this._storms = [];
+      for (const s of storms) {
+        const colr = levelColor[s.level] || 0x69f0ae;
+        const pts = [];
+        for (let i = 0; i <= 60; i++) {
+          const th = (i / 60) * Math.PI * 4;              // two-turn spiral
+          const rr = 1 + (i / 60) * 7;
+          pts.push(new THREE.Vector3(Math.cos(th) * rr, Math.sin(th) * rr, 0));
+        }
+        const spiral = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: colr, transparent: true, opacity: 0.9 }),
+        );
+        const holder = new THREE.Group();
+        const surface = toXYZ(s.lat, s.lon, R + 2);
+        holder.position.copy(surface);
+        holder.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 0, 1), surface.clone().normalize());
+        holder.add(spiral);
+        this.group.add(holder);
+        this._storms.push({ holder, spiral });
+
+        const label = document.createElement("div");
+        label.className = "globe-stormlabel";
+        label.innerHTML = `<span class="sn">${s.name}</span><span class="st">TROPICAL CYCLONE</span>`;
+        this.el.appendChild(label);
+        this._modeLabels.push({ local: toXYZ(s.lat, s.lon, R + 4), label });
+      }
+    } catch { /* storms are a bonus — rain still works without them */ }
+  }
+
+  _animateRain(dt) {
+    const r = this._rain;
+    r.t += dt;
+    r.drops.forEach((d, i) => {
+      const h = 1 - ((r.t * d.spd + d.phase) % 1);        // 1 → 0 falling
+      const v = toXYZ(d.lat, d.lon, R + 1 + h * 5);
+      r.pos[i * 3] = v.x; r.pos[i * 3 + 1] = v.y; r.pos[i * 3 + 2] = v.z;
+      const b = 0.25 + 0.75 * h;                          // fade as it lands
+      r.col[i * 3] = 0.35 * b; r.col[i * 3 + 1] = 0.6 * b; r.col[i * 3 + 2] = 1.0 * b;
+    });
+    r.points.geometry.getAttribute("position").needsUpdate = true;
+    r.points.geometry.getAttribute("color").needsUpdate = true;
   }
 
   // ── Fly-to glide ────────────────────────────────────────────────────────
@@ -450,6 +665,11 @@ export class Globe {
     }
 
     this.camera.position.z = this.camDist;
+
+    // Animated weather layers
+    if (this._wind) this._advanceWind(dt);
+    if (this._rain) this._animateRain(dt);
+    if (this._storms) for (const s of this._storms) s.spiral.rotation.z -= dt * 2.4;
 
     // Project labels (pins + heat-mode temps); fade behind the horizon
     const projectLabel = (world, label, interactive) => {

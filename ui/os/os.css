@@ -101,6 +101,15 @@ html, body {
 .globe-templabel .tn { font-size: 7px; letter-spacing: 0.24em; color: var(--dim); }
 .globe-templabel .tt { font-size: 12px; letter-spacing: 0.08em; color: var(--white); font-weight: 300; }
 
+.globe-stormlabel {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  text-align: center; transition: opacity .25s linear;
+  text-shadow: 0 0 10px #000; will-change: transform;
+}
+.globe-stormlabel .sn { font-size: 11px; letter-spacing: 0.26em; color: #ff8a80; }
+.globe-stormlabel .st { font-size: 7px; letter-spacing: 0.3em; color: var(--dim); }
+
 #footnote {
   position: absolute; bottom: 12vh; left: 50%; transform: translateX(-50%);
   font-size: 10px; letter-spacing: 0.6em; text-transform: uppercase;

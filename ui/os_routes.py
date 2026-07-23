@@ -55,6 +55,7 @@ _WORLD_CITIES = [
     (78.2, 15.6), (-54.8, -68.3), (-77.8, 166.7), (72.8, -56.1), (81.7, -16.7),
 ]
 _weather_cache = {"ts": 0.0, "cities": []}
+_storms_cache = {"ts": 0.0, "storms": []}
 _WEATHER_TTL = 30 * 60
 
 
@@ -131,7 +132,8 @@ def register_os(app: FastAPI, broadcast):
                     "https://api.open-meteo.com/v1/forecast",
                     params={
                         "latitude": lats, "longitude": lons,
-                        "current": "temperature_2m,wind_speed_10m,precipitation",
+                        "current": "temperature_2m,wind_speed_10m,wind_direction_10m,"
+                                   "precipitation,cloud_cover",
                     },
                 )
                 data = r.json()
@@ -146,10 +148,52 @@ def register_os(app: FastAPI, broadcast):
                 "lat": lat, "lon": lon,
                 "t": cur.get("temperature_2m", 0),
                 "w": cur.get("wind_speed_10m", 0),
+                "wd": cur.get("wind_direction_10m", 0),
                 "p": cur.get("precipitation", 0),
+                "c": cur.get("cloud_cover", 0),
             })
         _weather_cache.update(ts=now, cities=cities)
         return {"cities": cities, "cached": False}
+
+    @app.get("/api/globe/storms")
+    async def globe_storms():
+        """Active tropical cyclones from GDACS (cached 30 minutes)."""
+        now = time.time()
+        if now - _storms_cache["ts"] < _WEATHER_TTL:
+            return {"storms": _storms_cache["storms"], "cached": True}
+        storms = []
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(
+                    "https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP",
+                    params={"eventtypes": "TC"},
+                )
+                seen = set()
+                for feat in r.json().get("features", []):
+                    props = feat.get("properties", {})
+                    geom = feat.get("geometry") or {}
+                    # GDACS mixes point events with track LineStrings — points only
+                    if geom.get("type") != "Point":
+                        continue
+                    coords = geom.get("coordinates") or []
+                    if len(coords) < 2 or not all(
+                            isinstance(c, (int, float)) for c in coords[:2]):
+                        continue
+                    name = (props.get("eventname") or "CYCLONE").upper()
+                    key = props.get("eventid") or name
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    storms.append({
+                        "name": name,
+                        "lat": coords[1], "lon": coords[0],
+                        "level": (props.get("alertlevel") or "Green").lower(),
+                    })
+        except Exception as e:
+            log.warning(f"GDACS storms fetch failed: {e}")
+            return {"storms": _storms_cache["storms"], "error": str(e)}
+        _storms_cache.update(ts=now, storms=storms)
+        return {"storms": storms, "cached": False}
 
     @app.post("/api/os/camera")
     async def os_camera(body: dict):
